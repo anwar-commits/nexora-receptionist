@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @dr/contracts build && pnpm --filter @dr/db build
+      - run: pnpm typecheck
+      - name: Integration tests (real PostgreSQL, row-level security)
+        run: pnpm --filter @dr/api test
+        env:
+          TEST_ADMIN_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+      - run: pnpm --filter @dr/web build

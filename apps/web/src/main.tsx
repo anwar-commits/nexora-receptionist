@@ -1,0 +1,40 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { StrictMode, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { createRoot } from 'react-dom/client';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
+import './index.css';
+import { restore, session } from './lib/api';
+import { CreateClinicPage, RegisterPage } from './pages/Forms';
+import { LoginPage } from './pages/Login';
+import { ShellPage } from './pages/Shell';
+import { VerifyPage } from './pages/Verify';
+
+const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, refetchOnWindowFocus: false } } });
+
+/** Pages that need a session: try to restore it from the refresh token first. */
+function RequireSession({ children }: { children: ReactNode }) {
+  const signedIn = useSyncExternalStore(session.subscribe, () => session.signedIn);
+  const [checked, setChecked] = useState(signedIn);
+  useEffect(() => { if (!signedIn) void restore().finally(() => setChecked(true)); }, [signedIn]);
+  if (signedIn) return <>{children}</>;
+  if (!checked) return <div className="grid h-full place-items-center text-ink-2">Loading…</div>;
+  return <Navigate to="/login" replace />;
+}
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/verify" element={<VerifyPage />} />
+          <Route path="/setup-mfa" element={<RequireSession><VerifyPage fromSession /></RequireSession>} />
+          <Route path="/clinics/new" element={<RequireSession><CreateClinicPage /></RequireSession>} />
+          <Route path="/" element={<RequireSession><ShellPage /></RequireSession>} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </BrowserRouter>
+    </QueryClientProvider>
+  </StrictMode>,
+);

@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+/* "Calm Intelligence" tokens from the approved design system.
+   teal = act, lavender = the AI is doing this, red = emergencies only. */
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Plus Jakarta Sans", "Inter", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+
+  --color-canvas: #F7F4EE;
+  --color-surface: #FFFEFB;
+  --color-ink: #0B1530;
+  --color-ink-2: #5B6584;
+  --color-line: #E7E2D8;
+  --color-line-2: #EFEAE1;
+  --color-navy: #101C3D;
+  --color-teal: #0B7A73;
+  --color-teal-dark: #075E58;
+  --color-teal-tint: #E9F4F3;
+  --color-ai: #6A5AE0;
+  --color-ai-ink: #4B3CC4;
+  --color-ai-tint: #EFEDFF;
+  --color-ok: #12976B;
+  --color-ok-ink: #0D6E4E;
+  --color-ok-tint: #E6F6EF;
+  --color-warn-ink: #8A5300;
+  --color-warn-tint: #FFF4E0;
+  --color-critical: #D23C4A;
+}
+
+html, body, #root { height: 100%; }
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-feature-settings: "tnum" 1, "cv11" 1;
+}
+:focus-visible { outline: 2px solid var(--color-teal); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+.orb {
+  background: radial-gradient(circle at 35% 30%, #A8F0D8, #14A89E 40%, #6A5AE0 85%);
+  animation: breathe 1.6s ease-in-out infinite;
+}
+@keyframes breathe { 50% { transform: scale(1.06); } }
