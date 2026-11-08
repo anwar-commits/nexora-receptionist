@@ -24,6 +24,7 @@ const schema = z.object({
   ELEVENLABS_WEBHOOK_SECRET: z.string().min(1).optional(),   // post-call webhook HMAC secret
   ELEVENLABS_INIT_SECRET: z.string().min(16).optional(),     // header secret on the call-start webhook
   RECORDINGS_DIR: z.string().default('var/recordings'),
+  WEB_DIST: z.string().optional(),                           // serve the built web app (single-service deploys)
 });
 
 export type Config = z.infer<typeof schema> & {

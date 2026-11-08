@@ -1,3 +1,4 @@
+import { join, resolve } from 'node:path';
 import cors from 'cors';
 import express, { Router } from 'express';
 import rateLimit from 'express-rate-limit';
@@ -21,7 +22,8 @@ export function createApp(deps: Deps) {
   app.disable('x-powered-by');
   app.set('trust proxy', 1); // behind one load balancer in production
 
-  app.use(helmet());
+  // Recordings play from blob: URLs created after an authenticated download.
+  app.use(helmet({ contentSecurityPolicy: { directives: { mediaSrc: ["'self'", 'blob:'] } } }));
   app.use(cors({ origin: deps.config.WEB_ORIGIN.split(','), credentials: false, allowedHeaders: ['Authorization', 'Content-Type', 'X-Org-Id', 'Idempotency-Key'] }));
   // Voice vendor routes, before the general JSON parser: the post-call webhook carries call audio
   // (large, signed over the raw bytes); the LLM endpoint carries the whole conversation each turn.
@@ -60,6 +62,13 @@ export function createApp(deps: Deps) {
   v1.use('/', inboxRouter(deps));
   v1.use('/', voiceRouter(deps));
   app.use('/v1', v1);
+
+  // One-service deployments (e.g. Render): serve the built web app from the same address.
+  if (deps.config.WEB_DIST) {
+    const dist = resolve(deps.config.WEB_DIST);
+    app.use(express.static(dist, { index: false, maxAge: '1h' }));
+    app.get(/^\/(?!v1\/|health).*/, (_req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(join(dist, 'index.html')); });
+  }
 
   app.use((_req, _res, next) => next(new HttpError(404, 'not_found', 'No such endpoint')));
   app.use(errorHandler(deps));

@@ -1,0 +1,67 @@
+# Render Blueprint: Dashboard → New → Blueprint → pick this repo. Region: Singapore (closest to India).
+# You are asked once for ANTHROPIC_API_KEY and ELEVENLABS_API_KEY; everything else is generated.
+services:
+  - type: pserv
+    name: dr-postgres
+    runtime: docker
+    region: singapore
+    plan: starter
+    dockerfilePath: ./infra/render/postgres/Dockerfile
+    dockerContext: ./infra/render/postgres
+    disk:
+      name: pgdata
+      mountPath: /var/lib/postgresql/data
+      sizeGB: 10
+    envVars:
+      - key: POSTGRES_DB
+        value: doc_receptionist
+      - key: PGDATA
+        value: /var/lib/postgresql/data/pgdata
+      - key: POSTGRES_PASSWORD
+        generateValue: true
+      - key: DR_API_PASSWORD
+        generateValue: true
+
+  - type: web
+    name: doc-receptionist
+    runtime: docker
+    region: singapore
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    disk:
+      name: recordings
+      mountPath: /data
+      sizeGB: 5
+    envVars:
+      # Staging pilot: no real SMS provider until Phase 13, so sign-in codes for SMS logins appear in the service logs.
+      - key: NODE_ENV
+        value: development
+      - key: PORT
+        value: "4000"
+      - key: DB_HOST
+        fromService: { type: pserv, name: dr-postgres, property: host }
+      - key: POSTGRES_PASSWORD
+        fromService: { type: pserv, name: dr-postgres, envVarKey: POSTGRES_PASSWORD }
+      - key: DR_API_PASSWORD
+        fromService: { type: pserv, name: dr-postgres, envVarKey: DR_API_PASSWORD }
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATA_ENCRYPTION_KEY
+        generateValue: true
+      - key: HASH_PEPPER
+        generateValue: true
+      - key: ELEVENLABS_INIT_SECRET
+        generateValue: true
+      - key: ELEVENLABS_WEBHOOK_SECRET
+        sync: false   # copy from ElevenLabs → Agents → Settings → Post-call webhook, after creating it
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: ELEVENLABS_BASE_URL
+        value: https://api.elevenlabs.io   # switch to https://api.in.residency.elevenlabs.io if your ElevenLabs workspace is on India residency
+      - key: PUBLIC_API_URL
+        value: https://doc-receptionist.onrender.com   # change if Render gives the service a different address
+      - key: WEB_ORIGIN
+        value: https://doc-receptionist.onrender.com
