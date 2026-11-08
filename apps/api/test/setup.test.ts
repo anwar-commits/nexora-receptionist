@@ -1,33 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import pg from 'pg';
 import { inject } from 'vitest';
-import { bearer, makeApp, ownerWithClinic, person, totp, type TestApp } from './helpers.js';
+import { ROLE, as, makeApp, ownerWithClinic, staff, type TestApp } from './helpers.js';
 
 let t: TestApp;
 beforeAll(() => { t = makeApp(); });
 afterAll(() => t.close());
-
-const ROLE = {
-  branchManager: '00000000-0000-4000-8000-000000000002',
-  doctor: '00000000-0000-4000-8000-000000000003',
-  receptionist: '00000000-0000-4000-8000-000000000004',
-};
-
-type Owner = Awaited<ReturnType<typeof ownerWithClinic>>;
-type Req = ReturnType<typeof t.http.get>;
-const as = (token: string, orgId: string) => (r: Req) => r.set(bearer(token)).set('X-Org-Id', orgId);
-
-/** Invites someone with a role, then signs them in by SMS code (and enrols MFA if the role needs it). */
-async function staff(owner: Owner, roleId: string, branchIds: string[] = [], name = 'Staff Member') {
-  const p = person(name);
-  const inv = await as(owner.access, owner.orgId)(t.http.post('/v1/members')).send({ fullName: p.fullName, phone: p.phone, roleId, branchIds }).expect(201);
-  await t.http.post('/v1/auth/otp').send({ phone: p.phone }).expect(202);
-  const login = await t.http.post('/v1/auth/otp/verify').send({ phone: p.phone, code: t.sms.sent.get(p.phone) }).expect(200);
-  if (login.body.status === 'ok') return { token: login.body.accessToken as string, userId: inv.body.userId as string };
-  const start = await t.http.post('/v1/auth/mfa/enroll/start').send({ mfaToken: login.body.mfaToken }).expect(200);
-  const done = await t.http.post('/v1/auth/mfa/enroll/confirm').send({ mfaToken: login.body.mfaToken, code: totp(start.body.secret) }).expect(200);
-  return { token: done.body.accessToken as string, userId: inv.body.userId as string };
-}
 
 const HOURS = { mon: [['10:00', '14:00'], ['16:00', '20:00']], tue: [['10:00', '20:00']], wed: [['10:00', '20:00']], thu: [['10:00', '20:00']], fri: [['10:00', '20:00']], sat: [['10:00', '14:00']] };
 
@@ -88,7 +66,7 @@ describe('doctors, hours and leave', () => {
     const o = as(owner.access, owner.orgId);
     const second = await o(t.http.post('/v1/branches')).send({ name: 'Kankarbagh', addressLine: 'Main Road', city: 'Patna', state: 'Bihar' }).expect(201);
 
-    const docUser = await staff(owner, ROLE.doctor, [], 'Dr. Ritika Sinha');
+    const docUser = await staff(t, owner, ROLE.doctor, [], 'Dr. Ritika Sinha');
     const mine = await o(t.http.post('/v1/doctors')).send({ displayName: 'Dr. Ritika Sinha', userId: docUser.userId }).expect(201);
     // a staff account gets one doctor profile
     await o(t.http.post('/v1/doctors')).send({ displayName: 'Duplicate', userId: docUser.userId }).expect(409);
@@ -102,7 +80,7 @@ describe('doctors, hours and leave', () => {
     await d(t.http.post('/v1/services')).send({ name: 'X ray', durationMinutes: 10, feePaise: 100 }).expect(403);
 
     // branch manager of Kankarbagh: adds sessions there, cannot touch the main branch's sessions
-    const mgr = await staff(owner, ROLE.branchManager, [second.body.id], 'Branch Manager');
+    const mgr = await staff(t, owner, ROLE.branchManager, [second.body.id], 'Branch Manager');
     const m = as(mgr.token, owner.orgId);
     const res = await m(t.http.put(`/v1/doctors/${mine.body.id}/schedule`)).send({ rules: [{ weekday: 3, start: '15:00', end: '18:00', mode: 'clinic', branchId: second.body.id }] }).expect(200);
     // Tuesday at the main branch (set by the doctor) is kept
@@ -118,7 +96,7 @@ describe('doctors, hours and leave', () => {
     await m(t.http.post(`/v1/doctors/${other.body.id}/leave`)).send({ startsAt: from, endsAt: to }).expect(403);
 
     // receptionists can read the doctor list (to book) but not edit hours
-    const rec = await staff(owner, ROLE.receptionist, [owner.branchId], 'Receptionist');
+    const rec = await staff(t, owner, ROLE.receptionist, [owner.branchId], 'Receptionist');
     const r = as(rec.token, owner.orgId);
     expect((await r(t.http.get('/v1/doctors')).expect(200)).body.items).toHaveLength(2);
     await r(t.http.put(`/v1/doctors/${mine.body.id}/schedule`)).send({ rules: [] }).expect(403);

@@ -50,7 +50,78 @@ export class OrganizationSettings extends Model<InferAttributes<OrganizationSett
   declare phoneSetupChoice: CreationOptional<'forward_existing' | 'new_number' | 'later' | null>;
   declare onboardingCompletedAt: CreationOptional<Date | null>;
   declare onboardingCompletedBy: CreationOptional<string | null>;
+  declare mrnPrefix: CreationOptional<string | null>;
+  declare nextMrn: CreationOptional<number>;
   declare updatedAt: CreationOptional<Date>;
+}
+
+type Range = [{ value: Date; inclusive: boolean }, { value: Date; inclusive: boolean }];
+
+export class Patient extends Model<InferAttributes<Patient>, InferCreationAttributes<Patient>> {
+  declare id: CreationOptional<string>;
+  declare phoneE164Enc: Buffer;
+  declare phoneHash: string;
+  declare fullName: string;
+  declare dateOfBirth: string | null;
+  declare sex: 'female' | 'male' | 'other' | 'unknown' | null;
+  declare preferredLanguage: CreationOptional<string>;
+  declare createdByOrg: string;
+  declare createdAt: CreationOptional<Date>;
+  declare updatedAt: CreationOptional<Date>;
+  declare deletedAt: CreationOptional<Date | null>;
+}
+
+export class PatientProfile extends Model<InferAttributes<PatientProfile>, InferCreationAttributes<PatientProfile>> {
+  declare id: CreationOptional<string>;
+  declare organizationId: string;
+  declare patientId: string;
+  declare mrn: string;
+  declare homeBranchId: string | null;
+  declare city: string | null;
+  declare acquisitionSource: string | null;
+  declare tags: CreationOptional<string[]>;
+  declare createdAt: CreationOptional<Date>;
+  declare updatedAt: CreationOptional<Date>;
+  declare deletedAt: CreationOptional<Date | null>;
+}
+
+export type AppointmentStatus = 'held' | 'booked' | 'confirmed' | 'checked_in' | 'in_consultation' | 'completed' | 'cancelled' | 'no_show' | 'rescheduled';
+
+export class Appointment extends Model<InferAttributes<Appointment>, InferCreationAttributes<Appointment>> {
+  declare id: CreationOptional<string>;
+  declare organizationId: string;
+  declare branchId: string | null;
+  declare doctorId: string;
+  declare serviceId: string;
+  declare patientProfileId: string;
+  declare mode: ConsultMode;
+  declare slot: Range;
+  declare status: CreationOptional<AppointmentStatus>;
+  declare bookedByKind: 'ai_agent' | 'staff' | 'patient_app' | 'partner' | 'import';
+  declare bookedById: string | null;
+  declare feePaise: string | null;
+  declare reasonText: string | null;
+  declare idempotencyKey: string | null;
+  declare cancelledReason: CreationOptional<string | null>;
+  declare rescheduledFrom: string | null;
+  declare statusChangedAt: CreationOptional<Date>;
+  declare statusChangedBy: string | null;
+  declare createdAt: CreationOptional<Date>;
+  declare updatedAt: CreationOptional<Date>;
+}
+
+export class SlotHold extends Model<InferAttributes<SlotHold>, InferCreationAttributes<SlotHold>> {
+  declare id: CreationOptional<string>;
+  declare organizationId: string;
+  declare doctorId: string;
+  declare serviceId: string;
+  declare mode: ConsultMode;
+  declare branchId: string | null;
+  declare slot: Range;
+  declare heldByKind: 'call' | 'staff' | 'app';
+  declare heldByRef: string | null;
+  declare createdBy: string | null;
+  declare expiresAt: Date;
 }
 
 export type ConsultMode = 'clinic' | 'video' | 'phone';
@@ -287,6 +358,8 @@ export function initModels(sequelize: Sequelize) {
     phoneSetupChoice: DataTypes.TEXT,
     onboardingCompletedAt: DataTypes.DATE,
     onboardingCompletedBy: DataTypes.UUID,
+    mrnPrefix: DataTypes.TEXT,
+    nextMrn: { type: DataTypes.INTEGER, defaultValue: 1001 },
     updatedAt: DataTypes.DATE,
   }, { ...common, sequelize, tableName: 'organization_settings', createdAt: false, updatedAt: 'updated_at' });
 
@@ -359,6 +432,71 @@ export function initModels(sequelize: Sequelize) {
     createdBy: DataTypes.UUID,
     createdAt: DataTypes.DATE,
   }, { ...common, sequelize, tableName: 'schedule_exceptions', createdAt: 'created_at', updatedAt: false });
+
+  Patient.init({
+    id: uuidPk,
+    phoneE164Enc: { type: DataTypes.BLOB, allowNull: false },
+    phoneHash: { type: DataTypes.TEXT, allowNull: false },
+    fullName: { type: DataTypes.TEXT, allowNull: false },
+    dateOfBirth: DataTypes.DATEONLY,
+    sex: DataTypes.TEXT,
+    preferredLanguage: { type: DataTypes.TEXT, defaultValue: 'hi' },
+    createdByOrg: { type: DataTypes.UUID, allowNull: false },
+    createdAt: DataTypes.DATE,
+    updatedAt: DataTypes.DATE,
+    deletedAt: DataTypes.DATE,
+  }, { ...common, sequelize, tableName: 'patients', ...ts });
+
+  PatientProfile.init({
+    id: uuidPk,
+    organizationId: { type: DataTypes.UUID, allowNull: false },
+    patientId: { type: DataTypes.UUID, allowNull: false },
+    mrn: { type: DataTypes.TEXT, allowNull: false },
+    homeBranchId: DataTypes.UUID,
+    city: DataTypes.TEXT,
+    acquisitionSource: DataTypes.TEXT,
+    tags: { type: DataTypes.ARRAY(DataTypes.TEXT), defaultValue: [] },
+    createdAt: DataTypes.DATE,
+    updatedAt: DataTypes.DATE,
+    deletedAt: DataTypes.DATE,
+  }, { ...common, sequelize, tableName: 'patient_profiles', ...ts });
+
+  Appointment.init({
+    id: uuidPk,
+    organizationId: { type: DataTypes.UUID, allowNull: false },
+    branchId: DataTypes.UUID,
+    doctorId: { type: DataTypes.UUID, allowNull: false },
+    serviceId: { type: DataTypes.UUID, allowNull: false },
+    patientProfileId: { type: DataTypes.UUID, allowNull: false },
+    mode: { type: DataTypes.TEXT, allowNull: false },
+    slot: { type: DataTypes.RANGE(DataTypes.DATE), allowNull: false },
+    status: { type: DataTypes.TEXT, defaultValue: 'booked' },
+    bookedByKind: { type: DataTypes.TEXT, allowNull: false },
+    bookedById: DataTypes.UUID,
+    feePaise: DataTypes.BIGINT,
+    reasonText: DataTypes.TEXT,
+    idempotencyKey: DataTypes.TEXT,
+    cancelledReason: DataTypes.TEXT,
+    rescheduledFrom: DataTypes.UUID,
+    statusChangedAt: DataTypes.DATE,
+    statusChangedBy: DataTypes.UUID,
+    createdAt: DataTypes.DATE,
+    updatedAt: DataTypes.DATE,
+  }, { ...common, sequelize, tableName: 'appointments', ...ts });
+
+  SlotHold.init({
+    id: uuidPk,
+    organizationId: { type: DataTypes.UUID, allowNull: false },
+    doctorId: { type: DataTypes.UUID, allowNull: false },
+    serviceId: DataTypes.UUID,
+    mode: DataTypes.TEXT,
+    branchId: DataTypes.UUID,
+    slot: { type: DataTypes.RANGE(DataTypes.DATE), allowNull: false },
+    heldByKind: { type: DataTypes.TEXT, allowNull: false },
+    heldByRef: DataTypes.UUID,
+    createdBy: DataTypes.UUID,
+    expiresAt: { type: DataTypes.DATE, allowNull: false },
+  }, { ...common, sequelize, tableName: 'slot_holds', timestamps: false });
 
   Holiday.init({
     id: uuidPk,

@@ -159,3 +159,20 @@ export function SectionTitle({ title, subtitle, action }: { title: string; subti
 export function Empty({ children }: { children: ReactNode }) {
   return <div className="rounded-xl border border-dashed border-line px-4 py-6 text-center text-sm text-ink-2">{children}</div>;
 }
+
+/** Right-hand panel over the page. Closes on Escape or the close button. */
+export function Drawer({ title, onClose, children, width = 520 }: { title: ReactNode; onClose: () => void; children: ReactNode; width?: number }) {
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end bg-navy/30" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}>
+      <section role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined} style={{ width }}
+        className="flex h-full max-w-full flex-col overflow-y-auto bg-canvas shadow-2xl">
+        <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-line bg-canvas px-6 py-4">
+          <h2 className="font-display text-lg font-bold">{title}</h2>
+          <button type="button" onClick={onClose} aria-label="Close" className="ml-auto grid size-9 place-items-center rounded-lg text-ink-2 hover:bg-surface hover:text-ink">✕</button>
+        </header>
+        <div className="flex flex-col gap-5 px-6 py-5">{children}</div>
+      </section>
+    </div>
+  );
+}

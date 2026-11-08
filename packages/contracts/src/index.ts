@@ -229,6 +229,79 @@ export interface OnboardingStatus {
   canComplete: boolean;
 }
 
+// ---------- patients and appointments (Phase 5) ----------
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
+
+export const patientBody = z.object({
+  fullName: z.string().trim().min(2).max(120),
+  phone: phoneE164,
+  dateOfBirth: isoDate.nullable().optional(),
+  sex: z.enum(['female', 'male', 'other', 'unknown']).nullable().optional(),
+  preferredLanguage: languageCode.default('hi'),
+  homeBranchId: uuid.nullable().optional(),
+  city: z.string().trim().max(80).nullable().optional(),
+  acquisitionSource: z.string().trim().max(80).nullable().optional(),
+});
+export const updatePatientBody = patientBody.partial();
+
+export const availabilityQuery = z.object({
+  doctorId: uuid,
+  serviceId: uuid,
+  mode: consultMode,
+  branchId: uuid.optional(),
+  from: isoDate,
+  days: z.coerce.number().int().min(1).max(14).default(7),
+});
+
+const slotTarget = {
+  doctorId: uuid,
+  serviceId: uuid,
+  mode: consultMode,
+  branchId: uuid.nullable().default(null),
+  start: z.string().datetime({ offset: true }),
+};
+
+export const holdBody = z.object(slotTarget);
+
+export const bookBody = z.object({
+  ...slotTarget,
+  patientProfileId: uuid,
+  reasonText: z.string().trim().max(500).nullable().optional(),
+  holdId: uuid.optional(),
+  idempotencyKey: z.string().trim().min(8).max(100).optional(),
+});
+
+export const rescheduleBody = z.object({
+  start: z.string().datetime({ offset: true }),
+  doctorId: uuid.optional(),
+  mode: consultMode.optional(),
+  branchId: uuid.nullable().optional(),
+  reason: z.string().trim().max(200).optional(),
+});
+
+export const cancelBody = z.object({ reason: z.string().trim().min(3).max(300) });
+
+export const APPOINTMENT_STATUSES = ['booked', 'confirmed', 'checked_in', 'in_consultation', 'completed', 'cancelled', 'no_show', 'rescheduled'] as const;
+export type AppointmentStatus = (typeof APPOINTMENT_STATUSES)[number];
+export const statusBody = z.object({ status: z.enum(['confirmed', 'checked_in', 'in_consultation', 'completed', 'no_show']) });
+
+export const appointmentListQuery = z.object({
+  from: z.string().datetime({ offset: true }),
+  to: z.string().datetime({ offset: true }),
+  doctorId: uuid.optional(),
+  branchId: uuid.optional(),
+  patientProfileId: uuid.optional(),
+  includeInactive: z.enum(['0', '1']).default('1'),
+});
+
+export interface AppointmentView {
+  id: string; start: string; end: string; status: AppointmentStatus; mode: ConsultMode; branchId: string | null;
+  doctorId: string; doctorName: string; serviceId: string; serviceName: string; feePaise: number | null;
+  patient: { profileId: string; mrn: string; fullName: string };
+  reasonText: string | null; bookedByKind: string; cancelledReason: string | null; rescheduledFrom: string | null; createdAt: string;
+}
+export interface SlotView { start: string; end: string; branchId: string | null; mode: ConsultMode }
+
 // ---------- errors ----------
 export type ErrorCode =
   | 'validation_failed'

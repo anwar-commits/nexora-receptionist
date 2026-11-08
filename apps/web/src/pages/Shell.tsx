@@ -5,9 +5,10 @@ import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react
 import { Button, Card, Logo, Notice, Pill } from '../components/ui';
 import { ApiRequestError, api, auth, session } from '../lib/api';
 import { useClinic, useClinicData } from '../lib/clinic';
+import { LIVE, todayIn, useAppointments, useAttention, useZone } from '../lib/schedule';
 
 const NAV: { label: string; to?: string }[] = [
-  { label: 'Home', to: '/' }, { label: 'Reception' }, { label: 'Inbox' }, { label: 'Calendar' }, { label: 'Patients' },
+  { label: 'Home', to: '/' }, { label: 'Reception' }, { label: 'Inbox' }, { label: 'Calendar', to: '/calendar' }, { label: 'Patients', to: '/patients' },
   { label: 'CRM pipeline' }, { label: 'AI Receptionist' }, { label: 'Referrals' }, { label: 'Payments' }, { label: 'Analytics' },
   { label: 'Settings', to: '/settings' },
 ];
@@ -35,7 +36,8 @@ export function ShellPage() {
   const switchTo = async (id: string) => { session.setOrg(id); await qc.invalidateQueries(); navigate('/'); };
   const signOut = async () => { try { await auth.logout(); } finally { session.clear(); qc.clear(); navigate('/login', { replace: true }); } };
   const active = memberships.find((m) => m.organizationId === orgId);
-  const page = location.pathname.startsWith('/settings') ? 'Settings' : location.pathname.startsWith('/setup') ? 'Setup' : 'Home';
+  const PAGES: [string, string][] = [['/settings', 'Settings'], ['/setup', 'Setup'], ['/calendar', 'Calendar'], ['/patients', 'Patients']];
+  const page = PAGES.find(([p]) => location.pathname.startsWith(p))?.[1] ?? 'Home';
 
   return (
     <div className="flex min-h-full flex-wrap">
@@ -85,6 +87,10 @@ export function HomePage() {
   const ob = onboarding.data;
   const next = ob?.steps.find((s) => !s.done);
   const doneCount = ob?.steps.filter((s) => s.done).length ?? 0;
+  const zone = useZone();
+  const today = useAppointments(todayIn(zone));
+  const attention = useAttention();
+  const todayLive = today.data?.filter((a) => LIVE.has(a.status)) ?? [];
 
   return (
     <>
@@ -103,6 +109,15 @@ export function HomePage() {
           {can('org:update') ? <Link to={`/setup/${next?.key ?? 'review'}`} className="inline-flex h-11 items-center rounded-[10px] bg-teal px-5 text-[15px] font-semibold text-white hover:bg-teal-dark">Continue setup</Link> : <span className="text-sm text-ink-2">The clinic owner is finishing setup.</span>}
         </Card>
       ) : ob ? <Notice kind="ok">Setup is complete. The AI receptionist starts answering once your phone line is connected in the telephony release.</Notice> : null}
+
+      {can('appointment:read') ? (
+        <Card className="flex flex-wrap items-center gap-6 p-5">
+          <div><div className="text-[11px] font-bold tracking-[.08em] text-ink-2">TODAY</div><p className="mt-1 text-3xl font-bold">{todayLive.length}</p><p className="text-sm text-ink-2">appointments to come or in progress</p></div>
+          <div><p className="mt-5 text-3xl font-bold">{todayLive.filter((a) => a.status === 'checked_in').length}</p><p className="text-sm text-ink-2">waiting</p></div>
+          {attention.data?.length ? <div className="rounded-lg bg-warn-tint px-3 py-2 text-sm text-warn-ink"><b>{attention.data.length}</b> clash with leave or a holiday</div> : null}
+          <Link to="/calendar" className="ml-auto inline-flex h-11 items-center rounded-[10px] bg-teal px-5 text-[15px] font-semibold text-white hover:bg-teal-dark">Open calendar</Link>
+        </Card>
+      ) : null}
 
       <div className="grid gap-5 md:grid-cols-3">
         <Card className="p-5">
@@ -124,7 +139,7 @@ export function HomePage() {
           <Link to="/settings/branches" className="mt-3 inline-block text-[13px] font-semibold text-teal">Branches and hours →</Link>
         </Card>
       </div>
-      <Notice kind="ai">Reception, calendar, patients and the AI receptionist arrive in the next releases. This release covers clinic setup.</Notice>
+      <Notice kind="ai">Calendar and patients are live. Reception queue, inbox and the AI receptionist arrive in the next releases.</Notice>
     </>
   );
 }

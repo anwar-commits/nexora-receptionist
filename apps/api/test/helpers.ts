@@ -60,3 +60,26 @@ export async function ownerWithClinic(t: TestApp, clinicName = 'Lumen Hair & Ski
   await t.http.post('/v1/auth/mfa/enroll/confirm').set(bearer(access)).send({ code: totp(start.body.secret) }).expect(200);
   return { person: p, access, refresh: reg.body.refreshToken as string, orgId: org.body.organization.id as string, branchId: org.body.branch.id as string, totpSecret: start.body.secret as string };
 }
+
+export const ROLE = {
+  branchManager: '00000000-0000-4000-8000-000000000002',
+  doctor: '00000000-0000-4000-8000-000000000003',
+  receptionist: '00000000-0000-4000-8000-000000000004',
+};
+
+export type Owner = Awaited<ReturnType<typeof ownerWithClinic>>;
+type Req = ReturnType<TestApp['http']['get']>;
+export const as = (token: string, orgId: string) => (r: Req) => r.set(bearer(token)).set('X-Org-Id', orgId);
+
+/** Invites someone with a role, then signs them in by SMS code (and enrols MFA if the role needs it). */
+export async function staff(t: TestApp, owner: Owner, roleId: string, branchIds: string[] = [], name = 'Staff Member') {
+  const p = person(name);
+  const inv = await as(owner.access, owner.orgId)(t.http.post('/v1/members')).send({ fullName: p.fullName, phone: p.phone, roleId, branchIds }).expect(201);
+  await t.http.post('/v1/auth/otp').send({ phone: p.phone }).expect(202);
+  const login = await t.http.post('/v1/auth/otp/verify').send({ phone: p.phone, code: t.sms.sent.get(p.phone) }).expect(200);
+  if (login.body.status === 'ok') return { token: login.body.accessToken as string, userId: inv.body.userId as string };
+  const start = await t.http.post('/v1/auth/mfa/enroll/start').send({ mfaToken: login.body.mfaToken }).expect(200);
+  const done = await t.http.post('/v1/auth/mfa/enroll/confirm').send({ mfaToken: login.body.mfaToken, code: totp(start.body.secret) }).expect(200);
+  return { token: done.body.accessToken as string, userId: inv.body.userId as string };
+}
+

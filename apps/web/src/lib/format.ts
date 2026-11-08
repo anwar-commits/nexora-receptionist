@@ -23,3 +23,6 @@ export const DAYS = [
 export const MODE_LABEL = { clinic: 'Clinic', video: 'Video', phone: 'Phone' } as const;
 
 export const minutesLabel = (m: number) => (m >= 60 && m % 60 === 0 ? `${m / 60} h` : m > 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`);
+
+/** "+919812345670" → "+91 98123 45670"; other numbers unchanged. */
+export const phoneLabel = (e164: string) => (/^\+91\d{10}$/.test(e164) ? `+91 ${e164.slice(3, 8)} ${e164.slice(8)}` : e164);
