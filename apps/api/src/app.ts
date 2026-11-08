@@ -8,6 +8,8 @@ import { HttpError } from './errors.js';
 import { errorHandler } from './middleware.js';
 import { identityRouter, meRouter } from './modules/identity.js';
 import { crmRouter } from './modules/crm.js';
+import { inboxRouter } from './modules/inbox.js';
+import { receptionRouter } from './modules/reception.js';
 import { schedulingRouter } from './modules/scheduling.js';
 import { setupRouter } from './modules/setup.js';
 import { tenancyRouter } from './modules/tenancy.js';
@@ -19,7 +21,8 @@ export function createApp(deps: Deps) {
 
   app.use(helmet());
   app.use(cors({ origin: deps.config.WEB_ORIGIN.split(','), credentials: false, allowedHeaders: ['Authorization', 'Content-Type', 'X-Org-Id', 'Idempotency-Key'] }));
-  app.use(express.json({ limit: '100kb' }));
+  // Keep the raw bytes: webhook signatures are computed over them, not over re-serialised JSON.
+  app.use(express.json({ limit: '100kb', verify: (req, _res, buf) => { (req as express.Request).rawBody = buf; } }));
   if (deps.config.NODE_ENV !== 'test') {
     app.use(pinoHttp({
       logger: deps.log,
@@ -47,6 +50,8 @@ export function createApp(deps: Deps) {
   v1.use('/', setupRouter(deps));
   v1.use('/', schedulingRouter(deps));
   v1.use('/', crmRouter(deps));
+  v1.use('/', receptionRouter(deps));
+  v1.use('/', inboxRouter(deps));
   app.use('/v1', v1);
 
   app.use((_req, _res, next) => next(new HttpError(404, 'not_found', 'No such endpoint')));

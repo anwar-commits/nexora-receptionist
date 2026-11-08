@@ -69,7 +69,7 @@ export function NewPatientForm({ initialPhone = '', initialName = '', onCreated,
   );
 }
 
-function PatientPicker({ value, onChange }: { value: PatientView | null; onChange: (p: PatientView | null) => void }) {
+export function PatientPicker({ value, onChange }: { value: PatientView | null; onChange: (p: PatientView | null) => void }) {
   const { orgId, can } = useClinic();
   const [term, setTerm] = useState('');
   const [debounced, setDebounced] = useState('');

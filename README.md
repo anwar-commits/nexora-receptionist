@@ -3,7 +3,7 @@
 Multi-tenant healthcare SaaS for Indian clinics, built around a 24/7 AI voice receptionist.
 Design, architecture and database plans live in the project docs (Phase 1 and Phase 2); this repository is the code.
 
-**Status: plan Phases 3–6 complete** — CRM pipeline with transparent lead scoring, tasks, consents, patient timeline and waiting-room tokens, on top of patients, the free-slot engine and booking. See [docs/phase-6.md](docs/phase-6.md) (which also explains the phase numbering) and [docs/phase-5.md](docs/phase-5.md).
+**Status: plan Phases 3–7 complete** — reception console (walk-ins, desk payments with receipts and refunds, day close), WhatsApp inbox with signed Meta webhooks, on top of CRM, scheduling, patients and clinic setup. See [docs/phase-7.md](docs/phase-7.md) and the earlier phase notes in [docs/](docs/).
 
 Phase 4 delivered clinic setup: doctors and weekly hours, leave, services and fees, clinic settings, holidays and a six-step setup wizard ([docs/phase-4.md](docs/phase-4.md)).
 

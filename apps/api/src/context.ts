@@ -34,6 +34,7 @@ declare global {
   namespace Express {
     interface Request {
       ctx?: RequestContext;
+      rawBody?: Buffer;
     }
   }
 }

@@ -26,3 +26,6 @@ export const minutesLabel = (m: number) => (m >= 60 && m % 60 === 0 ? `${m / 60}
 
 /** "+919812345670" → "+91 98123 45670"; other numbers unchanged. */
 export const phoneLabel = (e164: string) => (/^\+91\d{10}$/.test(e164) ? `+91 ${e164.slice(3, 8)} ${e164.slice(8)}` : e164);
+
+/** Money amounts (collected, due, refunded): always a number, ₹0 included. Use rupees() for prices. */
+export const money = (paise: number) => `₹${(paise / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;

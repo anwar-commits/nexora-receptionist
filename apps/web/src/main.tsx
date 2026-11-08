@@ -7,6 +7,9 @@ import { restore, session } from './lib/api';
 import { CreateClinicPage, RegisterPage } from './pages/Forms';
 import { LoginPage } from './pages/Login';
 import { PipelinePage } from './pages/crm/Pipeline';
+import { InboxPage } from './pages/reception/Inbox';
+import { PaymentsPage, ReceiptPage } from './pages/reception/Payments';
+import { ReceptionPage } from './pages/reception/Reception';
 import { CalendarPage } from './pages/schedule/Calendar';
 import { PatientPage, PatientsPage } from './pages/schedule/Patients';
 import { SettingsPage, SetupPage } from './pages/Setup';
@@ -35,6 +38,7 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/verify" element={<VerifyPage />} />
           <Route path="/setup-mfa" element={<RequireSession><VerifyPage fromSession /></RequireSession>} />
           <Route path="/clinics/new" element={<RequireSession><CreateClinicPage /></RequireSession>} />
+          <Route path="/receipts/:id" element={<RequireSession><ReceiptPage /></RequireSession>} />
           <Route path="/" element={<RequireSession><ShellPage /></RequireSession>}>
             <Route index element={<HomePage />} />
             <Route path="setup/:step?" element={<SetupPage />} />
@@ -43,6 +47,9 @@ createRoot(document.getElementById('root')!).render(
             <Route path="patients" element={<PatientsPage />} />
             <Route path="patients/:id" element={<PatientPage />} />
             <Route path="pipeline" element={<PipelinePage />} />
+            <Route path="reception" element={<ReceptionPage />} />
+            <Route path="inbox" element={<InboxPage />} />
+            <Route path="payments" element={<PaymentsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

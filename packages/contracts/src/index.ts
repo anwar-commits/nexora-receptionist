@@ -397,6 +397,58 @@ export const consentBody = z.object({
 
 export const queueReorderBody = z.object({ doctorId: uuid, tokenIds: z.array(uuid).min(1).max(200) });
 
+// ---------- reception (Phase 7) ----------
+export const PAYMENT_METHODS = ['cash', 'upi', 'card'] as const;
+export const paymentBody = z
+  .object({
+    patientProfileId: uuid,
+    appointmentId: uuid.optional(),
+    queueTokenId: uuid.optional(),
+    amountPaise: z.number().int().min(100).max(10_000_000_00), // ₹1 to ₹1 crore
+    method: z.enum(PAYMENT_METHODS),
+    purpose: z.string().trim().min(2).max(120).default('Consultation'),
+    reference: z.string().trim().max(60).optional(),
+    idempotencyKey: z.string().trim().min(8).max(100),
+  })
+  .refine((v) => !(v.appointmentId && v.queueTokenId), { message: 'Pay for an appointment or a walk-in, not both', path: ['queueTokenId'] })
+  .refine((v) => v.method === 'cash' || !!v.reference || v.method === 'card', { message: 'Enter the UPI reference', path: ['reference'] });
+export const refundBody = z.object({ amountPaise: z.number().int().min(100), reason: z.string().trim().min(3).max(300) });
+
+export const walkInBody = z.object({
+  patientProfileId: uuid,
+  doctorId: uuid,
+  serviceId: uuid,
+  branchId: uuid.optional(),
+});
+
+export const replyBody = z.object({ body: z.string().trim().min(1).max(4096) });
+export const conversationUpdateBody = z.object({
+  status: z.enum(['open', 'snoozed', 'closed']),
+  assigneeUserId: uuid.nullable(),
+  patientProfileId: uuid.nullable(),
+}).partial();
+
+export const channelAccountBody = z.discriminatedUnion('provider', [
+  z.object({
+    provider: z.literal('whatsapp_cloud'),
+    kind: z.literal('whatsapp'),
+    displayName: z.string().trim().min(2).max(60),
+    address: phoneE164,                                   // the clinic's WhatsApp number
+    phoneNumberId: z.string().trim().regex(/^\d{6,20}$/, 'The phone number ID from Meta (digits)'),
+    accessToken: z.string().trim().min(20).max(1000),
+    appSecret: z.string().trim().min(16).max(200),
+    branchId: uuid.nullable().optional(),
+  }),
+  z.object({
+    provider: z.literal('sandbox'),
+    kind: z.enum(['whatsapp', 'sms']),
+    displayName: z.string().trim().min(2).max(60),
+    address: phoneE164,
+    branchId: uuid.nullable().optional(),
+  }),
+]);
+export const simulateInboundBody = z.object({ from: phoneE164, body: z.string().trim().min(1).max(4096), name: z.string().trim().max(80).optional() });
+
 // ---------- errors ----------
 export type ErrorCode =
   | 'validation_failed'

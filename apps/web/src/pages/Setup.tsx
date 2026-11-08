@@ -9,6 +9,7 @@ import { ClinicDetails } from './setup/ClinicDetails';
 import { Doctors } from './setup/Doctors';
 import { CallsAndRecording, Departments, Holidays, PhoneAndAi, Roles, Staff } from './setup/More';
 import { Services } from './setup/Services';
+import { ChannelsSettings } from './reception/Inbox';
 
 const STEPS: { key: OnboardingStepKey; title: string; subtitle: string }[] = [
   { key: 'clinic', title: 'Clinic details', subtitle: 'What callers hear about your clinic, and the number they call.' },
@@ -109,7 +110,7 @@ const SECTIONS: { key: string; label: string; title: string; subtitle?: string; 
   { key: 'roles', label: 'Roles and permissions', title: 'Roles and permissions', subtitle: 'Built-in roles. Custom roles arrive later.', el: () => <Roles /> },
   { key: 'phone', label: 'AI phone line', title: 'AI phone line', el: () => <PhoneAndAi /> },
   { key: 'calls', label: 'Calls and recording', title: 'Calls and recording', el: () => <CallsAndRecording /> },
-  { key: 'channels', label: 'Channels', title: 'Channels' },
+  { key: 'channels', label: 'Channels', title: 'Channels', subtitle: 'WhatsApp and SMS numbers for the inbox.', el: () => <ChannelsSettings /> },
   { key: 'integrations', label: 'Integrations', title: 'Integrations' },
   { key: 'billing', label: 'Plan and billing', title: 'Plan and billing' },
 ];
