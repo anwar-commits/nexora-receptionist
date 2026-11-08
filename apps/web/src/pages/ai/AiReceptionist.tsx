@@ -206,14 +206,16 @@ function SuiteAndPublish({ view, ready }: { view: NonNullable<AgentView['agent']
 
 function PhoneNumbers({ view }: { view: NonNullable<AgentView['agent']> }) {
   const { branches } = useClinicData();
-  const [provider, setProvider] = useState<'exotel' | 'plivo'>('exotel');
+  const [provider, setProvider] = useState<'exotel' | 'plivo' | 'twilio'>('exotel');
   const [f, setF] = useState<Record<string, string>>({ subdomain: 'api.in.exotel.com' });
   const add = useSave((body: unknown) => api('/ai-receptionist/numbers', { method: 'POST', body }), KEYS);
   const remove = useSave((id: string) => api(`/ai-receptionist/numbers/${id}`, { method: 'DELETE' }), KEYS);
   const sync = useSave(() => api('/ai-receptionist/sync', { method: 'POST', body: {} }), KEYS);
   const field = (k: string, label: string, hint?: string, type = 'text') => <Field key={k} label={label} name={k} type={type} value={f[k] ?? ''} hint={hint} autoComplete="off" onChange={(e) => setF({ ...f, [k]: e.target.value })} />;
   const submit = () => add.mutate({ provider, phoneNumber: f.phoneNumber ?? '', label: f.label || undefined, branchId: f.branchId || null,
-    ...(provider === 'exotel' ? { accountSid: f.accountSid, apiKey: f.apiKey, apiToken: f.apiToken, subdomain: f.subdomain, appId: f.appId } : { sipAddress: f.sipAddress, username: f.username, password: f.password }) },
+    ...(provider === 'exotel' ? { accountSid: f.accountSid, apiKey: f.apiKey, apiToken: f.apiToken, subdomain: f.subdomain, appId: f.appId }
+      : provider === 'twilio' ? { accountSid: f.twilioSid, authToken: f.twilioToken }
+      : { sipAddress: f.sipAddress, username: f.username, password: f.password }) },
   { onSuccess: () => setF({ subdomain: 'api.in.exotel.com' }) });
   return (
     <Card className="flex flex-col gap-4 p-5">
@@ -225,7 +227,7 @@ function PhoneNumbers({ view }: { view: NonNullable<AgentView['agent']> }) {
         <ul className="flex flex-col divide-y divide-line-2">
           {view.numbers.map((n) => (
             <li key={n.id} className="flex flex-wrap items-center gap-3 py-2.5 text-sm">
-              <b className="font-mono">{phoneLabel(n.number)}</b><Pill>{n.provider === 'exotel' ? 'Exotel' : 'Plivo'}</Pill>{n.label ? <span className="text-ink-2">{n.label}</span> : null}
+              <b className="font-mono">{phoneLabel(n.number)}</b><Pill>{{ exotel: 'Exotel', plivo: 'Plivo', twilio: 'Twilio' }[n.provider]}</Pill>{n.label ? <span className="text-ink-2">{n.label}</span> : null}
               {n.connected ? <Pill tone="ok">Connected</Pill> : <Pill tone="warn">{view.liveVersionId ? 'Not connected yet' : 'Connects when live'}</Pill>}
               <button type="button" className="ml-auto text-xs font-semibold text-ink-2 hover:text-ink" onClick={() => remove.mutate(n.id)}>Remove</button>
             </li>
@@ -239,6 +241,7 @@ function PhoneNumbers({ view }: { view: NonNullable<AgentView['agent']> }) {
           <ChoiceCards name="Provider" value={provider} onChange={setProvider} options={[
             { value: 'exotel', title: 'Exotel', body: 'Connected natively. You need the Exotel Voicebot applet set up to point at ElevenLabs.' },
             { value: 'plivo', title: 'Plivo', body: 'Connected as a SIP trunk to ElevenLabs.' },
+            { value: 'twilio', title: 'Twilio', body: 'Connected natively. Indian Twilio numbers take calls from Indian numbers only and cannot call out.' },
           ]} />
           <div className="grid gap-4 md:grid-cols-2">
             {field('phoneNumber', 'Phone number', 'e.g. +91 80489 61234')}
@@ -257,6 +260,11 @@ function PhoneNumbers({ view }: { view: NonNullable<AgentView['agent']> }) {
                   <option value="api.exotel.com">Singapore (api.exotel.com)</option>
                 </Select>
                 {field('appId', 'Voicebot applet ID')}
+              </>
+            ) : provider === 'twilio' ? (
+              <>
+                {field('twilioSid', 'Twilio Account SID', 'Starts with AC — on the Twilio Console home page')}
+                {field('twilioToken', 'Twilio Auth Token', 'Next to the Account SID', 'password')}
               </>
             ) : (
               <>

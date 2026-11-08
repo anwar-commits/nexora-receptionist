@@ -140,6 +140,11 @@ describe('settings, safety suite and publishing', () => {
     const imp = vendor.sent.filter((s) => s.op === 'import_phone').at(-1)!.body;
     expect(imp).toMatchObject({ provider: 'exotel', phone_number: '+918048960000', api_subdomain: 'api.in.exotel.com', app_id: '12345' });
     await c.o(t.http.post('/v1/ai-receptionist/numbers')).send({ provider: 'exotel', phoneNumber: '+918048960000', accountSid: 'ab', apiKey: 'key-2', apiToken: 'tok-2', subdomain: 'api.exotel.com', appId: '1' }).expect(409);
+    // Twilio: native import with the Account SID and Auth Token.
+    await c.o(t.http.post('/v1/ai-receptionist/numbers')).send({ provider: 'twilio', phoneNumber: '+18005550100', accountSid: 'SKa9e5bc94bf1cdebb404626ead81e896', authToken: 'x'.repeat(32) }).expect(400);
+    const tw = await c.o(t.http.post('/v1/ai-receptionist/numbers')).send({ provider: 'twilio', phoneNumber: '+18005550100', accountSid: `AC${'0'.repeat(32)}`, authToken: 'tw-token-0123456789abcdef' }).expect(201);
+    expect(tw.body.agent.numbers.map((n: { provider: string }) => n.provider)).toEqual(['exotel', 'twilio']);
+    expect(vendor.sent.filter((s) => s.op === 'import_phone').at(-1)!.body).toMatchObject({ provider: 'twilio', phone_number: '+18005550100', sid: `AC${'0'.repeat(32)}` });
     // Credentials are stored encrypted.
     const raw = await owner.query(`SELECT encode(secret_enc, 'escape') AS s FROM app.integration_credentials WHERE provider = 'exotel'`);
     expect(raw.rows[0].s).not.toContain('tok-secret');

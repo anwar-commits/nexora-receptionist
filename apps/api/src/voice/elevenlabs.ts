@@ -62,10 +62,12 @@ export function agentPayload(i: AgentSyncInput) {
 
 export type PhoneImport =
   | { provider: 'exotel'; phoneNumber: string; label: string; accountSid: string; apiKey: string; apiToken: string; subdomain: string; appId: string }
+  | { provider: 'twilio'; phoneNumber: string; label: string; accountSid: string; authToken: string }
   | { provider: 'plivo'; phoneNumber: string; label: string; sipAddress: string; username: string; password: string };
 
-/** Pure: the phone-number import body. Exotel is native in ElevenLabs; Plivo connects as a SIP trunk. */
+/** Pure: the phone-number import body. Exotel and Twilio are native in ElevenLabs; Plivo connects as a SIP trunk. */
 export function phonePayload(p: PhoneImport) {
+  if (p.provider === 'twilio') return { provider: 'twilio', phone_number: p.phoneNumber, label: p.label, sid: p.accountSid, token: p.authToken };
   if (p.provider === 'exotel') {
     return { provider: 'exotel', phone_number: p.phoneNumber, label: p.label, account_sid: p.accountSid, api_key: p.apiKey, api_token: p.apiToken, api_subdomain: p.subdomain, app_id: p.appId };
   }

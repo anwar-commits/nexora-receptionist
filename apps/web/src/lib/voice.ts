@@ -9,7 +9,7 @@ export interface AgentConfig extends AgentDraftBody {
 export interface SuiteResult { key: string; name: string; status: 'passed' | 'failed' | 'skipped'; detail: string; safetyCritical: boolean }
 export interface SuiteSummary { passed: number; failed: number; skipped: number; total: number; runAt: string; model: string | null }
 export interface AgentVersion { id: string; version: number; suite: SuiteSummary | null; suitePassedAt: string | null; publishedAt: string | null; publishedBy: string | null; createdAt: string; emergencyApproved: boolean; live: boolean }
-export interface PhoneLine { id: string; number: string; provider: 'exotel' | 'plivo'; label: string | null; branchId: string | null; connected: boolean }
+export interface PhoneLine { id: string; number: string; provider: 'exotel' | 'plivo' | 'twilio'; label: string | null; branchId: string | null; connected: boolean }
 export interface AgentView {
   setup: { model: boolean; voice: boolean; publicUrl: boolean; voiceBaseUrl: string; postCallWebhook: boolean; initiationWebhook: boolean };
   canApproveEmergency: boolean;

@@ -519,6 +519,11 @@ export const phoneNumberBody = z.discriminatedUnion('provider', [
     subdomain: z.enum(['api.exotel.com', 'api.in.exotel.com']), appId: z.string().trim().min(1).max(100),
   }),
   z.object({
+    provider: z.literal('twilio'), phoneNumber: phoneE164, label: z.string().trim().max(60).optional(), branchId: uuid.nullable().optional(),
+    accountSid: z.string().trim().regex(/^AC[0-9a-f]{32}$/, 'Twilio Account SID starts with AC followed by 32 characters'),
+    authToken: z.string().trim().min(16).max(200),
+  }),
+  z.object({
     provider: z.literal('plivo'), phoneNumber: phoneE164, label: z.string().trim().max(60).optional(), branchId: uuid.nullable().optional(),
     sipAddress: z.string().trim().min(3).max(200), username: z.string().trim().min(1).max(100), password: z.string().min(1).max(200),
   }),
