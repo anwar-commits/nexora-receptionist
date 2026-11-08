@@ -9,8 +9,8 @@ import { LIVE, todayIn, useAppointments, useAttention, useZone } from '../lib/sc
 import { MyTasks } from './crm/Tasks';
 
 const NAV: { label: string; to?: string }[] = [
-  { label: 'Home', to: '/' }, { label: 'Reception', to: '/reception' }, { label: 'Inbox', to: '/inbox' }, { label: 'Calendar', to: '/calendar' }, { label: 'Patients', to: '/patients' },
-  { label: 'CRM pipeline', to: '/pipeline' }, { label: 'AI Receptionist' }, { label: 'Referrals' }, { label: 'Payments', to: '/payments' }, { label: 'Analytics' },
+  { label: 'Home', to: '/' }, { label: 'Reception', to: '/reception' }, { label: 'Inbox', to: '/inbox' }, { label: 'Calls', to: '/calls' }, { label: 'Calendar', to: '/calendar' }, { label: 'Patients', to: '/patients' },
+  { label: 'CRM pipeline', to: '/pipeline' }, { label: 'AI Receptionist', to: '/ai-receptionist' }, { label: 'Referrals' }, { label: 'Payments', to: '/payments' }, { label: 'Analytics' },
   { label: 'Settings', to: '/settings' },
 ];
 
@@ -37,7 +37,7 @@ export function ShellPage() {
   const switchTo = async (id: string) => { session.setOrg(id); await qc.invalidateQueries(); navigate('/'); };
   const signOut = async () => { try { await auth.logout(); } finally { session.clear(); qc.clear(); navigate('/login', { replace: true }); } };
   const active = memberships.find((m) => m.organizationId === orgId);
-  const PAGES: [string, string][] = [['/settings', 'Settings'], ['/setup', 'Setup'], ['/calendar', 'Calendar'], ['/patients', 'Patients'], ['/pipeline', 'CRM pipeline'], ['/reception', 'Reception'], ['/inbox', 'Inbox'], ['/payments', 'Payments']];
+  const PAGES: [string, string][] = [['/settings', 'Settings'], ['/setup', 'Setup'], ['/calendar', 'Calendar'], ['/patients', 'Patients'], ['/pipeline', 'CRM pipeline'], ['/reception', 'Reception'], ['/inbox', 'Inbox'], ['/payments', 'Payments'], ['/calls', 'Calls'], ['/ai-receptionist', 'AI Receptionist']];
   const page = PAGES.find(([p]) => location.pathname.startsWith(p))?.[1] ?? 'Home';
 
   return (

@@ -523,7 +523,7 @@ export function crmRouter(deps: Deps): Router {
  * Called by scheduling: when a patient books, their open enquiry moves to "booked";
  * when a visit is completed, a "booked" lead moves to "consulted". Runs in the caller's transaction.
  */
-export async function advanceLeadsForPatient(deps: Deps, req: Request, profileId: string, from: LeadStage[], to: LeadStage, refId: string) {
+export async function advanceLeadsForPatient(deps: Deps, req: Request | null, profileId: string, from: LeadStage[], to: LeadStage, refId: string) {
   const { db } = deps;
   const rows = await db.sequelize.query<{ id: string; old: LeadStage }>(
     `WITH moved AS (

@@ -11,6 +11,7 @@ import { MyTasks } from '../crm/Tasks';
 import { AppointmentDrawer, BookingDrawer, PatientPicker } from '../schedule/Booking';
 import { WaitingRoom } from '../schedule/WaitingRoom';
 import { CollectDrawer } from './Payments';
+import { CallsPanel } from '../ai/Calls';
 
 function WalkInDrawer({ onClose }: { onClose: () => void }) {
   const { doctors, services } = useClinicData();
@@ -180,10 +181,7 @@ export function ReceptionPage() {
         <div className="flex flex-col gap-5">
           {can('payment:collect') ? <ToCollect onCollect={setCollect} /> : null}
           {can('inbox:read') ? <InboxPreview /> : null}
-          <Card className="p-5">
-            <h2 className="font-display text-lg font-bold">Calls</h2>
-            <p className="mt-1 text-sm text-ink-2">Live AI calls, hand-offs and missed calls appear here once the AI receptionist answers your phone line (next release).</p>
-          </Card>
+          {can('call:read') ? <CallsPanel /> : null}
           <Card className="p-5"><MyTasks /></Card>
         </div>
       </div>

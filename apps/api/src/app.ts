@@ -13,6 +13,8 @@ import { receptionRouter } from './modules/reception.js';
 import { schedulingRouter } from './modules/scheduling.js';
 import { setupRouter } from './modules/setup.js';
 import { tenancyRouter } from './modules/tenancy.js';
+import { voiceRouter } from './modules/voice.js';
+import { postCallHandler } from './voice/postcall.js';
 
 export function createApp(deps: Deps) {
   const app = express();
@@ -21,6 +23,10 @@ export function createApp(deps: Deps) {
 
   app.use(helmet());
   app.use(cors({ origin: deps.config.WEB_ORIGIN.split(','), credentials: false, allowedHeaders: ['Authorization', 'Content-Type', 'X-Org-Id', 'Idempotency-Key'] }));
+  // Voice vendor routes, before the general JSON parser: the post-call webhook carries call audio
+  // (large, signed over the raw bytes); the LLM endpoint carries the whole conversation each turn.
+  app.post('/v1/voice/elevenlabs/post-call', express.raw({ type: () => true, limit: '60mb' }), (req, res, next) => { postCallHandler(deps)(req, res).catch(next); });
+  app.use('/v1/voice/llm', express.json({ limit: '2mb' }));
   // Keep the raw bytes: webhook signatures are computed over them, not over re-serialised JSON.
   app.use(express.json({ limit: '100kb', verify: (req, _res, buf) => { (req as express.Request).rawBody = buf; } }));
   if (deps.config.NODE_ENV !== 'test') {
@@ -52,6 +58,7 @@ export function createApp(deps: Deps) {
   v1.use('/', crmRouter(deps));
   v1.use('/', receptionRouter(deps));
   v1.use('/', inboxRouter(deps));
+  v1.use('/', voiceRouter(deps));
   app.use('/v1', v1);
 
   app.use((_req, _res, next) => next(new HttpError(404, 'not_found', 'No such endpoint')));

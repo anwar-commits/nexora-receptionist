@@ -2,12 +2,20 @@ import type { Db } from '@dr/db';
 import type { Logger } from 'pino';
 import type { Config } from './config.js';
 import type { SmsProvider } from './lib/sms.js';
+import type { VoiceVendor } from './voice/elevenlabs.js';
+import type { Llm } from './voice/llm.js';
+import type { ObjectStore } from './voice/recordings.js';
 
 export interface Deps {
   config: Config;
   db: Db;
   sms: SmsProvider;
   log: Logger;
+  /** The receptionist's model. Absent = no model configured: the AI cannot be tested or go live. */
+  llm?: Llm;
+  /** ElevenLabs. Absent = not configured: agents can be published but not connected to phones. */
+  voice?: VoiceVendor;
+  recordings?: ObjectStore;
 }
 
 export type Scope = 'org' | 'branch' | 'own' | 'assigned';

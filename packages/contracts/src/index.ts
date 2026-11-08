@@ -466,6 +466,8 @@ export type ErrorCode =
   | 'not_found'
   | 'conflict'
   | 'rate_limited'
+  | 'no_model'
+  | 'not_configured'
   | 'internal';
 export interface ApiError {
   code: ErrorCode;
@@ -485,3 +487,48 @@ export interface MeResponse {
   user: { id: string; fullName: string; email: string | null; phone: string | null; mfaEnrolled: boolean };
   memberships: MembershipSummary[];
 }
+
+// ---------------------------------------------------------------------------
+// Phase 8: AI voice receptionist
+// ---------------------------------------------------------------------------
+export const voiceLang = z.enum(['en', 'hi', 'hi-Latn', 'bn', 'ur']);
+export type VoiceLang = z.infer<typeof voiceLang>;
+
+/** What a clinic may change. The emergency approval fields are set only by the approval endpoint. */
+export const agentDraftBody = z.object({
+  persona: z.object({ assistantName: z.string().trim().min(1).max(40), tone: z.enum(['warm', 'formal']) }),
+  voice: z.object({ voiceId: z.string().trim().max(100).nullable() }),
+  languages: z.array(voiceLang).min(1).max(5).refine((l) => new Set(l).size === l.length, 'languages repeat'),
+  guardrails: z.object({ allowBooking: z.boolean(), allowCancel: z.boolean(), allowReschedule: z.boolean() }),
+  handoff: z.object({ transferNumber: phoneE164.nullable() }),
+  emergency: z.object({ transferNumber: phoneE164.nullable() }),
+  intakeQuestions: z.array(z.string().trim().min(3).max(200)).max(8),
+  llmModel: z.string().regex(/^claude-[a-z0-9.-]+$/, 'must be a Claude model id'),
+});
+export type AgentDraftBody = z.infer<typeof agentDraftBody>;
+
+export const testConsoleBody = z.object({
+  lines: z.array(z.string().trim().min(1).max(500)).min(1).max(12),
+  callerPhone: phoneE164.nullable().optional(),
+});
+
+export const phoneNumberBody = z.discriminatedUnion('provider', [
+  z.object({
+    provider: z.literal('exotel'), phoneNumber: phoneE164, label: z.string().trim().max(60).optional(), branchId: uuid.nullable().optional(),
+    accountSid: z.string().trim().min(2).max(100), apiKey: z.string().trim().min(2).max(200), apiToken: z.string().trim().min(2).max(200),
+    subdomain: z.enum(['api.exotel.com', 'api.in.exotel.com']), appId: z.string().trim().min(1).max(100),
+  }),
+  z.object({
+    provider: z.literal('plivo'), phoneNumber: phoneE164, label: z.string().trim().max(60).optional(), branchId: uuid.nullable().optional(),
+    sipAddress: z.string().trim().min(3).max(200), username: z.string().trim().min(1).max(100), password: z.string().min(1).max(200),
+  }),
+]);
+
+export const callListQuery = z.object({
+  from: z.string().datetime({ offset: true }).optional(),
+  to: z.string().datetime({ offset: true }).optional(),
+  outcome: z.string().max(40).optional(),
+  includeTests: z.enum(['0', '1']).default('0'),
+});
+
+export const handoffCloseBody = z.object({ note: z.string().trim().max(500).optional() });

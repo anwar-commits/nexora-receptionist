@@ -72,6 +72,23 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
   return json as T;
 }
 
+/** Binary download (e.g. a call recording) with the same auth headers. */
+export async function apiBlob(path: string): Promise<Blob> {
+  const doFetch = () => {
+    const headers: Record<string, string> = {};
+    if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+    if (session.orgId) headers['X-Org-Id'] = session.orgId;
+    return fetch(`/v1${path}`, { headers });
+  };
+  let res = await doFetch();
+  if (res.status === 401 && (await refresh())) res = await doFetch();
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({ error: { code: 'internal', message: 'Could not load the file' } }));
+    throw new ApiRequestError(res.status, json.error);
+  }
+  return res.blob();
+}
+
 /** Restores a session after a page reload using the stored refresh token. */
 export const restore = () => (accessToken ? Promise.resolve(true) : refresh());
 

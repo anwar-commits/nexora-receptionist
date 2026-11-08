@@ -34,3 +34,18 @@ export function decrypt(key: Buffer, blob: Buffer): string {
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(blob.subarray(29)), decipher.final()]).toString('utf8');
 }
+
+/** Same format as encrypt(), for binary data such as call audio. */
+export function encryptBytes(key: Buffer, data: Buffer): Buffer {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const body = Buffer.concat([cipher.update(data), cipher.final()]);
+  return Buffer.concat([Buffer.from([1]), iv, cipher.getAuthTag(), body]);
+}
+
+export function decryptBytes(key: Buffer, blob: Buffer): Buffer {
+  if (blob[0] !== 1) throw new Error('unknown ciphertext version');
+  const decipher = createDecipheriv('aes-256-gcm', key, blob.subarray(1, 13));
+  decipher.setAuthTag(blob.subarray(13, 29));
+  return Buffer.concat([decipher.update(blob.subarray(29)), decipher.final()]);
+}

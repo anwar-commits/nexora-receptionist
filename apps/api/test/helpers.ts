@@ -5,6 +5,7 @@ import { pino } from 'pino';
 import request from 'supertest';
 import { inject } from 'vitest';
 import { createApp } from '../src/app.js';
+import type { Deps } from '../src/context.js';
 import { loadConfig } from '../src/config.js';
 import { MemorySms } from '../src/lib/sms.js';
 
@@ -15,7 +16,9 @@ export interface TestApp {
   close(): Promise<void>;
 }
 
-export function makeApp(): TestApp {
+export interface MakeAppOptions { llm?: Deps['llm']; voice?: Deps['voice']; recordings?: Deps['recordings']; env?: Record<string, string> }
+
+export function makeApp(opts: MakeAppOptions = {}): TestApp {
   const key = () => randomBytes(32).toString('base64');
   const config = loadConfig({
     NODE_ENV: 'test',
@@ -25,10 +28,11 @@ export function makeApp(): TestApp {
     HASH_PEPPER: key(),
     SMS_PROVIDER: 'memory',
     AUTH_RATE_LIMIT_PER_MIN: '1000',
+    ...opts.env,
   });
   const db = createDb(config.DATABASE_URL, { poolMax: 4 });
   const sms = new MemorySms();
-  const app = createApp({ config, db, sms, log: pino({ level: process.env.TEST_LOG ?? 'silent' }) });
+  const app = createApp({ config, db, sms, log: pino({ level: process.env.TEST_LOG ?? 'silent' }), llm: opts.llm, voice: opts.voice, recordings: opts.recordings });
   return { http: request(app), db, sms, close: () => db.close() };
 }
 

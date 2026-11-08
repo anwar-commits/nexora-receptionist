@@ -4,7 +4,7 @@ import type { Request } from 'express';
 import type { z } from 'zod';
 import type { Deps } from '../context.js';
 import { HttpError, notFound } from '../errors.js';
-import { auditFromReq } from './audit.js';
+import { audit, auditFromReq, type AuditEntry } from './audit.js';
 import { encrypt, hmac } from './crypto.js';
 
 export const patientPhoneHash = (deps: Deps, phone: string) => hmac(deps.config.pepper, 'patient-phone', phone);
@@ -14,9 +14,14 @@ export const patientPhoneHash = (deps: Deps, phone: string) => hmac(deps.config.
  * Must run inside withContext. Families often share one number, so the same number is fine;
  * the same number AND name is refused as a duplicate (details carry the existing profile id).
  */
-export async function createPatient(deps: Deps, req: Request, body: z.infer<typeof patientBody>, homeBranchId: string | null): Promise<string> {
+/** Who is registering the patient: a signed-in staff member (their request) or the AI receptionist. */
+export type Registrar = Request | { orgId: string; aiVersionId: string };
+
+export async function createPatient(deps: Deps, by: Registrar, body: z.infer<typeof patientBody>, homeBranchId: string | null): Promise<string> {
   const { db, config } = deps;
-  const orgId = req.ctx!.org!.id;
+  const orgId = 'aiVersionId' in by ? by.orgId : by.ctx!.org!.id;
+  const log = (e: Omit<AuditEntry, 'organizationId' | 'actorId' | 'ipHash'>) =>
+    'aiVersionId' in by ? audit({ ...e, organizationId: orgId, actorKind: 'ai_agent', actorId: by.aiVersionId }) : auditFromReq(by, e);
   const q = <T extends object>(sql: string, replacements: Record<string, unknown>) => db.sequelize.query<T>(sql, { replacements, type: QueryTypes.SELECT });
   const hash = patientPhoneHash(deps, body.phone);
   const [dup] = await q<{ id: string; mrn: string }>(
@@ -41,6 +46,6 @@ export async function createPatient(deps: Deps, req: Request, body: z.infer<type
     organizationId: orgId, patientId: person.id, mrn: `${prefix}-${counter.n}`, homeBranchId,
     city: body.city ?? null, acquisitionSource: body.acquisitionSource ?? null,
   });
-  await auditFromReq(req, { action: 'patient.create', targetType: 'patient_profile', targetId: profile.id, details: { mrn: profile.mrn } });
+  await log({ action: 'patient.create', targetType: 'patient_profile', targetId: profile.id, details: { mrn: profile.mrn } });
   return profile.id;
 }

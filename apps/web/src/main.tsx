@@ -6,6 +6,8 @@ import './index.css';
 import { restore, session } from './lib/api';
 import { CreateClinicPage, RegisterPage } from './pages/Forms';
 import { LoginPage } from './pages/Login';
+import { AiReceptionistPage } from './pages/ai/AiReceptionist';
+import { CallsPage } from './pages/ai/Calls';
 import { PipelinePage } from './pages/crm/Pipeline';
 import { InboxPage } from './pages/reception/Inbox';
 import { PaymentsPage, ReceiptPage } from './pages/reception/Payments';
@@ -50,6 +52,8 @@ createRoot(document.getElementById('root')!).render(
             <Route path="reception" element={<ReceptionPage />} />
             <Route path="inbox" element={<InboxPage />} />
             <Route path="payments" element={<PaymentsPage />} />
+            <Route path="calls" element={<CallsPage />} />
+            <Route path="ai-receptionist" element={<AiReceptionistPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

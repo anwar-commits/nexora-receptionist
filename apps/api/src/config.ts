@@ -15,6 +15,15 @@ const schema = z.object({
   WEB_ORIGIN: z.string().default('http://localhost:5173'),
   SMS_PROVIDER: z.enum(['console', 'memory']).default('console'),
   AUTH_RATE_LIMIT_PER_MIN: z.coerce.number().int().default(30),
+  // AI voice receptionist (Phase 8). All optional: without them the receptionist cannot go live.
+  PUBLIC_API_URL: z.string().url().optional(),               // where ElevenLabs reaches this API
+  ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  ANTHROPIC_BASE_URL: z.string().url().default('https://api.anthropic.com'),
+  ELEVENLABS_API_KEY: z.string().min(1).optional(),
+  ELEVENLABS_BASE_URL: z.string().url().default('https://api.in.residency.elevenlabs.io'), // India deployment: needed for Indian numbers
+  ELEVENLABS_WEBHOOK_SECRET: z.string().min(1).optional(),   // post-call webhook HMAC secret
+  ELEVENLABS_INIT_SECRET: z.string().min(16).optional(),     // header secret on the call-start webhook
+  RECORDINGS_DIR: z.string().default('var/recordings'),
 });
 
 export type Config = z.infer<typeof schema> & {

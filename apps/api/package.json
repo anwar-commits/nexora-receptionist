@@ -9,7 +9,8 @@
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "seed:dev": "tsx --env-file=../../.env src/scripts/seed-dev.ts"
+    "seed:dev": "tsx --env-file=../../.env src/scripts/seed-dev.ts",
+    "recordings:purge": "tsx --env-file=../../.env src/scripts/purge-recordings.ts"
   },
   "dependencies": {
     "@dr/contracts": "workspace:*",

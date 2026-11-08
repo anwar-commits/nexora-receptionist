@@ -7,3 +7,6 @@ dist/
 coverage/
 *.log
 .DS_Store
+
+# Call recordings (encrypted) in self-hosted/dev
+var/
