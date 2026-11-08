@@ -62,7 +62,7 @@ export function CreateClinicPage() {
       session.setOrg(r.organization.id);
       await qc.refetchQueries({ queryKey: ['me'] });
       await qc.invalidateQueries();
-      navigate(r.mfaRequiredForRole ? '/setup-mfa' : '/', { replace: true });
+      navigate(r.mfaRequiredForRole ? '/setup-mfa' : '/setup/clinic', { replace: true });
     } catch (e) { setError(apiMessage(e)); }
   });
 

@@ -7,6 +7,7 @@ import type { Deps } from './context.js';
 import { HttpError } from './errors.js';
 import { errorHandler } from './middleware.js';
 import { identityRouter, meRouter } from './modules/identity.js';
+import { setupRouter } from './modules/setup.js';
 import { tenancyRouter } from './modules/tenancy.js';
 
 export function createApp(deps: Deps) {
@@ -41,6 +42,7 @@ export function createApp(deps: Deps) {
   v1.use('/auth', authLimiter, identityRouter(deps));
   v1.use('/me', meRouter(deps));
   v1.use('/', tenancyRouter(deps));
+  v1.use('/', setupRouter(deps));
   app.use('/v1', v1);
 
   app.use((_req, _res, next) => next(new HttpError(404, 'not_found', 'No such endpoint')));

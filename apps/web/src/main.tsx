@@ -6,7 +6,8 @@ import './index.css';
 import { restore, session } from './lib/api';
 import { CreateClinicPage, RegisterPage } from './pages/Forms';
 import { LoginPage } from './pages/Login';
-import { ShellPage } from './pages/Shell';
+import { SettingsPage, SetupPage } from './pages/Setup';
+import { HomePage, ShellPage } from './pages/Shell';
 import { VerifyPage } from './pages/Verify';
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, refetchOnWindowFocus: false } } });
@@ -31,7 +32,11 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/verify" element={<VerifyPage />} />
           <Route path="/setup-mfa" element={<RequireSession><VerifyPage fromSession /></RequireSession>} />
           <Route path="/clinics/new" element={<RequireSession><CreateClinicPage /></RequireSession>} />
-          <Route path="/" element={<RequireSession><ShellPage /></RequireSession>} />
+          <Route path="/" element={<RequireSession><ShellPage /></RequireSession>}>
+            <Route index element={<HomePage />} />
+            <Route path="setup/:step?" element={<SetupPage />} />
+            <Route path="settings/:section?" element={<SettingsPage />} />
+          </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>

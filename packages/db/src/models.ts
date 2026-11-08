@@ -8,7 +8,7 @@ import {
 } from 'sequelize';
 
 /**
- * Sequelize models for the Phase 3 tables (identity, tenancy, audit).
+ * Sequelize models for identity, tenancy and audit (Phase 3) and clinic setup (Phase 4).
  * The schema itself is owned by the SQL migrations; models never sync().
  * Other domains get their models in the phase that builds them.
  */
@@ -40,7 +40,96 @@ export class OrganizationSettings extends Model<InferAttributes<OrganizationSett
   declare recordingRetentionDays: CreationOptional<number>;
   declare aiPickupMode: CreationOptional<'always' | 'after_ring' | 'after_hours'>;
   declare aiPickupAfterSeconds: CreationOptional<number>;
+  declare transcriptRetentionDays: CreationOptional<number>;
+  declare outboundStartLocal: CreationOptional<string>;
+  declare outboundEndLocal: CreationOptional<string>;
+  declare refundLimitReceptionistPaise: CreationOptional<string>;
+  declare prepayPolicy: CreationOptional<'always' | 'video_only' | 'never'>;
+  declare cancellationPolicyText: CreationOptional<string | null>;
+  declare freeCancellationHours: CreationOptional<number>;
+  declare phoneSetupChoice: CreationOptional<'forward_existing' | 'new_number' | 'later' | null>;
+  declare onboardingCompletedAt: CreationOptional<Date | null>;
+  declare onboardingCompletedBy: CreationOptional<string | null>;
   declare updatedAt: CreationOptional<Date>;
+}
+
+export type ConsultMode = 'clinic' | 'video' | 'phone';
+
+export class Doctor extends Model<InferAttributes<Doctor>, InferCreationAttributes<Doctor>> {
+  declare id: CreationOptional<string>;
+  declare organizationId: string;
+  declare userId: string | null;
+  declare departmentId: string | null;
+  declare displayName: string;
+  declare qualifications: string | null;
+  declare registrationNumber: string | null;
+  declare registrationCouncil: string | null;
+  declare registrationVerifiedAt: CreationOptional<Date | null>;
+  declare yearsExperience: number | null;
+  declare languages: CreationOptional<string[]>;
+  declare bioApproved: string | null;
+  declare photoUrl: CreationOptional<string | null>;
+  declare slotMinutes: CreationOptional<number>;
+  declare bufferMinutes: CreationOptional<number>;
+  declare maxOnlinePerDay: number | null;
+  declare bookableByAi: CreationOptional<boolean>;
+  declare isActive: CreationOptional<boolean>;
+  declare createdAt: CreationOptional<Date>;
+  declare updatedAt: CreationOptional<Date>;
+  declare deletedAt: CreationOptional<Date | null>;
+}
+
+export class Service extends Model<InferAttributes<Service>, InferCreationAttributes<Service>> {
+  declare id: CreationOptional<string>;
+  declare organizationId: string;
+  declare departmentId: string | null;
+  declare name: string;
+  declare durationMinutes: number;
+  declare feePaise: string | null; // bigint arrives as a string
+  declare aiMayQuoteFee: CreationOptional<boolean>;
+  declare modes: CreationOptional<ConsultMode[]>;
+  declare isActive: CreationOptional<boolean>;
+  declare createdAt: CreationOptional<Date>;
+  declare updatedAt: CreationOptional<Date>;
+}
+
+export class DoctorService extends Model<InferAttributes<DoctorService>, InferCreationAttributes<DoctorService>> {
+  declare doctorId: string;
+  declare serviceId: string;
+  declare organizationId: string;
+  declare feeOverridePaise: string | null;
+}
+
+export class ScheduleRule extends Model<InferAttributes<ScheduleRule>, InferCreationAttributes<ScheduleRule>> {
+  declare id: CreationOptional<string>;
+  declare organizationId: string;
+  declare doctorId: string;
+  declare branchId: string | null;
+  declare weekday: number;
+  declare startLocal: string;
+  declare endLocal: string;
+  declare mode: ConsultMode;
+  declare validFrom: CreationOptional<string>;
+  declare validTo: CreationOptional<string | null>;
+}
+
+export class ScheduleException extends Model<InferAttributes<ScheduleException>, InferCreationAttributes<ScheduleException>> {
+  declare id: CreationOptional<string>;
+  declare organizationId: string;
+  declare doctorId: string;
+  declare kind: 'leave' | 'block' | 'extra';
+  declare during: [{ value: Date; inclusive: boolean }, { value: Date; inclusive: boolean }];
+  declare reason: string | null;
+  declare createdBy: string | null;
+  declare createdAt: CreationOptional<Date>;
+}
+
+export class Holiday extends Model<InferAttributes<Holiday>, InferCreationAttributes<Holiday>> {
+  declare id: CreationOptional<string>;
+  declare organizationId: string;
+  declare branchId: string | null;
+  declare onDate: string;
+  declare name: string;
 }
 
 export class Branch extends Model<InferAttributes<Branch>, InferCreationAttributes<Branch>> {
@@ -188,8 +277,96 @@ export function initModels(sequelize: Sequelize) {
     recordingRetentionDays: { type: DataTypes.INTEGER, defaultValue: 90 },
     aiPickupMode: { type: DataTypes.TEXT, defaultValue: 'after_ring' },
     aiPickupAfterSeconds: { type: DataTypes.INTEGER, defaultValue: 20 },
+    transcriptRetentionDays: { type: DataTypes.INTEGER, defaultValue: 2555 },
+    outboundStartLocal: { type: DataTypes.TIME, defaultValue: '09:00' },
+    outboundEndLocal: { type: DataTypes.TIME, defaultValue: '20:00' },
+    refundLimitReceptionistPaise: { type: DataTypes.BIGINT, defaultValue: 500000 },
+    prepayPolicy: { type: DataTypes.TEXT, defaultValue: 'video_only' },
+    cancellationPolicyText: DataTypes.TEXT,
+    freeCancellationHours: { type: DataTypes.INTEGER, defaultValue: 4 },
+    phoneSetupChoice: DataTypes.TEXT,
+    onboardingCompletedAt: DataTypes.DATE,
+    onboardingCompletedBy: DataTypes.UUID,
     updatedAt: DataTypes.DATE,
   }, { ...common, sequelize, tableName: 'organization_settings', createdAt: false, updatedAt: 'updated_at' });
+
+  Doctor.init({
+    id: uuidPk,
+    organizationId: { type: DataTypes.UUID, allowNull: false },
+    userId: DataTypes.UUID,
+    departmentId: DataTypes.UUID,
+    displayName: { type: DataTypes.TEXT, allowNull: false },
+    qualifications: DataTypes.TEXT,
+    registrationNumber: DataTypes.TEXT,
+    registrationCouncil: DataTypes.TEXT,
+    registrationVerifiedAt: DataTypes.DATE,
+    yearsExperience: DataTypes.INTEGER,
+    languages: { type: DataTypes.ARRAY(DataTypes.TEXT), defaultValue: ['en', 'hi'] },
+    bioApproved: DataTypes.TEXT,
+    photoUrl: DataTypes.TEXT,
+    slotMinutes: { type: DataTypes.INTEGER, defaultValue: 20 },
+    bufferMinutes: { type: DataTypes.INTEGER, defaultValue: 5 },
+    maxOnlinePerDay: DataTypes.INTEGER,
+    bookableByAi: { type: DataTypes.BOOLEAN, defaultValue: true },
+    isActive: { type: DataTypes.BOOLEAN, defaultValue: true },
+    createdAt: DataTypes.DATE,
+    updatedAt: DataTypes.DATE,
+    deletedAt: DataTypes.DATE,
+  }, { ...common, sequelize, tableName: 'doctors', ...ts });
+
+  Service.init({
+    id: uuidPk,
+    organizationId: { type: DataTypes.UUID, allowNull: false },
+    departmentId: DataTypes.UUID,
+    name: { type: DataTypes.TEXT, allowNull: false },
+    durationMinutes: { type: DataTypes.INTEGER, allowNull: false },
+    feePaise: DataTypes.BIGINT,
+    aiMayQuoteFee: { type: DataTypes.BOOLEAN, defaultValue: false },
+    // app.consult_mode[]: Sequelize sends a text[] literal; Postgres casts it on insert.
+    modes: { type: DataTypes.ARRAY(DataTypes.ENUM('clinic', 'video', 'phone')), defaultValue: ['clinic'] },
+    isActive: { type: DataTypes.BOOLEAN, defaultValue: true },
+    createdAt: DataTypes.DATE,
+    updatedAt: DataTypes.DATE,
+  }, { ...common, sequelize, tableName: 'services', ...ts });
+
+  DoctorService.init({
+    doctorId: { type: DataTypes.UUID, primaryKey: true },
+    serviceId: { type: DataTypes.UUID, primaryKey: true },
+    organizationId: { type: DataTypes.UUID, allowNull: false },
+    feeOverridePaise: DataTypes.BIGINT,
+  }, { ...common, sequelize, tableName: 'doctor_services', timestamps: false });
+
+  ScheduleRule.init({
+    id: uuidPk,
+    organizationId: { type: DataTypes.UUID, allowNull: false },
+    doctorId: { type: DataTypes.UUID, allowNull: false },
+    branchId: DataTypes.UUID,
+    weekday: { type: DataTypes.SMALLINT, allowNull: false },
+    startLocal: { type: DataTypes.TIME, allowNull: false },
+    endLocal: { type: DataTypes.TIME, allowNull: false },
+    mode: { type: DataTypes.TEXT, allowNull: false },
+    validFrom: DataTypes.DATEONLY,
+    validTo: DataTypes.DATEONLY,
+  }, { ...common, sequelize, tableName: 'schedule_rules', timestamps: false });
+
+  ScheduleException.init({
+    id: uuidPk,
+    organizationId: { type: DataTypes.UUID, allowNull: false },
+    doctorId: { type: DataTypes.UUID, allowNull: false },
+    kind: { type: DataTypes.TEXT, allowNull: false },
+    during: { type: DataTypes.RANGE(DataTypes.DATE), allowNull: false },
+    reason: DataTypes.TEXT,
+    createdBy: DataTypes.UUID,
+    createdAt: DataTypes.DATE,
+  }, { ...common, sequelize, tableName: 'schedule_exceptions', createdAt: 'created_at', updatedAt: false });
+
+  Holiday.init({
+    id: uuidPk,
+    organizationId: { type: DataTypes.UUID, allowNull: false },
+    branchId: DataTypes.UUID,
+    onDate: { type: DataTypes.DATEONLY, allowNull: false },
+    name: { type: DataTypes.TEXT, allowNull: false },
+  }, { ...common, sequelize, tableName: 'holidays', timestamps: false });
 
   Branch.init({
     id: uuidPk,
@@ -312,4 +489,6 @@ export function initModels(sequelize: Sequelize) {
   Membership.belongsTo(Role, { as: 'role', foreignKey: 'roleId' });
   Membership.belongsTo(User, { as: 'user', foreignKey: 'userId' });
   Role.hasMany(RolePermission, { as: 'permissions', foreignKey: 'roleId' });
+  Doctor.hasMany(ScheduleRule, { as: 'rules', foreignKey: 'doctorId' });
+  Doctor.hasMany(DoctorService, { as: 'services', foreignKey: 'doctorId' });
 }

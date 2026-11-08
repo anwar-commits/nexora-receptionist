@@ -56,6 +56,10 @@ export type LoginResult =
   | { status: 'mfa_required'; mfaToken: string; enrolled: boolean };
 
 // ---------- organizations ----------
+/** Languages the AI receptionist can be set up for. hi-Latn is Hinglish (Hindi in Roman script); bho (Bhojpuri) is beta. */
+export const LANGUAGES = { en: 'English', hi: 'Hindi', 'hi-Latn': 'Hinglish', bn: 'Bengali', ur: 'Urdu', bho: 'Bhojpuri (beta)', mai: 'Maithili' } as const;
+export const languageCode = z.enum(['en', 'hi', 'hi-Latn', 'bn', 'ur', 'bho', 'mai']);
+
 export const createOrganizationBody = z.object({
   name: z.string().trim().min(2).max(120),
   city: z.string().trim().min(2).max(80),
@@ -63,7 +67,7 @@ export const createOrganizationBody = z.object({
   addressLine: z.string().trim().min(3).max(200),
   pincode: z.string().regex(/^\d{6}$/).optional(),
   specialities: z.array(z.string().trim().min(2).max(60)).max(20).default([]),
-  languages: z.array(z.enum(['en', 'hi', 'bn', 'ur', 'bho', 'mai'])).min(1).default(['en', 'hi']),
+  languages: z.array(languageCode).min(1).default(['en', 'hi']),
 });
 export type CreateOrganizationBody = z.infer<typeof createOrganizationBody>;
 
@@ -72,6 +76,23 @@ export const updateOrganizationBody = createOrganizationBody
   .extend({ legalName: z.string().max(200).nullable(), gstin: z.string().regex(/^[0-9A-Z]{15}$/).nullable() })
   .partial();
 
+/** "HH:MM", 24-hour. */
+export const clockTime = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use 24-hour time, e.g. 09:30');
+export const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
+/** Clinic opening hours per weekday; each day is a list of [open, close] periods. A missing day is closed. */
+export const openingHours = z
+  .record(z.enum(WEEKDAYS), z.array(z.tuple([clockTime, clockTime])).max(4))
+  .superRefine((v, ctx) => {
+    for (const [day, periods] of Object.entries(v)) {
+      const sorted = [...(periods ?? [])].sort((a, b) => a[0].localeCompare(b[0]));
+      sorted.forEach(([open, close], i) => {
+        if (close <= open) ctx.addIssue({ code: 'custom', path: [day], message: `${day}: closing time must be after opening time` });
+        const next = sorted[i + 1];
+        if (next && next[0] < close) ctx.addIssue({ code: 'custom', path: [day], message: `${day}: periods overlap` });
+      });
+    }
+  });
+
 export const branchBody = z.object({
   name: z.string().trim().min(2).max(120),
   addressLine: z.string().trim().min(3).max(200),
@@ -79,9 +100,7 @@ export const branchBody = z.object({
   state: z.string().trim().min(2).max(80),
   pincode: z.string().regex(/^\d{6}$/).nullable().optional(),
   phone: phoneE164.nullable().optional(),
-  openingHours: z
-    .record(z.enum(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']), z.array(z.tuple([z.string().regex(/^\d\d:\d\d$/), z.string().regex(/^\d\d:\d\d$/)])))
-    .optional(),
+  openingHours: openingHours.optional(),
 });
 export const updateBranchBody = branchBody.partial().extend({ isActive: z.boolean().optional() });
 
@@ -103,6 +122,112 @@ export const updateMemberBody = z.object({
   branchIds: z.array(uuid).max(50).optional(),
   status: z.enum(['active', 'suspended', 'removed']).optional(),
 });
+
+// ---------- clinic setup (Phase 4) ----------
+export const consultMode = z.enum(['clinic', 'video', 'phone']);
+export type ConsultMode = z.infer<typeof consultMode>;
+/** Money is always integer paise on the wire. */
+export const paise = z.number().int().min(0).max(100_000_000_00);
+
+export const doctorBody = z.object({
+  displayName: z.string().trim().min(2).max(120),
+  userId: uuid.nullable().optional(),
+  departmentId: uuid.nullable().optional(),
+  qualifications: z.string().trim().max(200).nullable().optional(),
+  registrationNumber: z.string().trim().max(60).nullable().optional(),
+  registrationCouncil: z.string().trim().max(120).nullable().optional(),
+  yearsExperience: z.number().int().min(0).max(70).nullable().optional(),
+  languages: z.array(languageCode).min(1).default(['en', 'hi']),
+  bioApproved: z.string().trim().max(1500).nullable().optional(),
+  slotMinutes: z.number().int().min(5).max(240).default(20),
+  bufferMinutes: z.number().int().min(0).max(120).default(5),
+  maxOnlinePerDay: z.number().int().min(0).max(200).nullable().optional(),
+  bookableByAi: z.boolean().default(true),
+});
+export const updateDoctorBody = doctorBody.partial().extend({ isActive: z.boolean().optional() });
+
+export const scheduleRuleInput = z
+  .object({
+    weekday: z.number().int().min(0).max(6), // 0 = Monday
+    start: clockTime,
+    end: clockTime,
+    mode: consultMode,
+    branchId: uuid.nullable().default(null),
+  })
+  .refine((r) => r.end > r.start, { message: 'End time must be after start time', path: ['end'] })
+  .refine((r) => (r.mode === 'clinic') === (r.branchId !== null), { message: 'Clinic sessions need a branch; video and phone sessions have none', path: ['branchId'] });
+export const scheduleBody = z.object({ rules: z.array(scheduleRuleInput).max(60) });
+export type ScheduleRuleInput = z.infer<typeof scheduleRuleInput>;
+
+export const leaveBody = z
+  .object({
+    kind: z.enum(['leave', 'block']).default('leave'),
+    startsAt: z.string().datetime({ offset: true }),
+    endsAt: z.string().datetime({ offset: true }),
+    reason: z.string().trim().max(200).nullable().optional(),
+  })
+  .refine((v) => new Date(v.endsAt) > new Date(v.startsAt), { message: 'End must be after start', path: ['endsAt'] });
+
+export const serviceBody = z
+  .object({
+    name: z.string().trim().min(2).max(120),
+    departmentId: uuid.nullable().optional(),
+    durationMinutes: z.number().int().min(5).max(720),
+    /** null = "after assessment": the AI never says a number. */
+    feePaise: paise.nullable(),
+    aiMayQuoteFee: z.boolean().default(false),
+    modes: z.array(consultMode).min(1).max(3).default(['clinic']),
+  })
+  .refine((v) => !v.aiMayQuoteFee || v.feePaise !== null, { message: 'The AI can only quote a fee that is set', path: ['aiMayQuoteFee'] });
+export const updateServiceBody = z
+  .object({
+    name: z.string().trim().min(2).max(120),
+    departmentId: uuid.nullable(),
+    durationMinutes: z.number().int().min(5).max(720),
+    feePaise: paise.nullable(),
+    aiMayQuoteFee: z.boolean(),
+    modes: z.array(consultMode).min(1).max(3),
+    isActive: z.boolean(),
+  })
+  .partial();
+
+export const doctorServicesBody = z.object({
+  items: z.array(z.object({ serviceId: uuid, feeOverridePaise: paise.nullable().default(null) })).max(100),
+});
+
+export const settingsBody = z
+  .object({
+    recordingEnabled: z.boolean(),
+    transcriptEnabled: z.boolean(),
+    recordingRetentionDays: z.number().int().min(0).max(3650),
+    transcriptRetentionDays: z.number().int().min(30).max(3650),
+    aiPickupMode: z.enum(['always', 'after_ring', 'after_hours']),
+    aiPickupAfterSeconds: z.number().int().min(5).max(90),
+    outboundStartLocal: clockTime,
+    outboundEndLocal: clockTime,
+    refundLimitReceptionistPaise: paise,
+    prepayPolicy: z.enum(['always', 'video_only', 'never']),
+    cancellationPolicyText: z.string().trim().max(1000).nullable(),
+    freeCancellationHours: z.number().int().min(0).max(168),
+    phoneSetupChoice: z.enum(['forward_existing', 'new_number', 'later']),
+  })
+  .partial()
+  .refine((v) => !v.outboundStartLocal || !v.outboundEndLocal || v.outboundEndLocal > v.outboundStartLocal, {
+    message: 'The calling window must end after it starts', path: ['outboundEndLocal'],
+  });
+
+export const holidayBody = z.object({
+  onDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD'),
+  name: z.string().trim().min(2).max(80),
+  branchId: uuid.nullable().default(null),
+});
+
+export type OnboardingStepKey = 'clinic' | 'branches' | 'doctors' | 'services' | 'phone' | 'review';
+export interface OnboardingStatus {
+  steps: { key: OnboardingStepKey; title: string; done: boolean; missing: string[] }[];
+  completedAt: string | null;
+  canComplete: boolean;
+}
 
 // ---------- errors ----------
 export type ErrorCode =

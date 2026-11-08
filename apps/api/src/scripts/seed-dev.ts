@@ -16,7 +16,7 @@ if (config.NODE_ENV === 'production') throw new Error('seed-dev must not run in 
 
 const db = createDb(config.DATABASE_URL);
 const sms = new MemorySms();
-const app = createApp({ config, db, sms, log: pino({ level: 'silent' }) });
+const app = createApp({ config, db, sms, log: pino({ level: process.env.SEED_LOG ?? 'silent' }) });
 const server = app.listen(0);
 const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`;
 
