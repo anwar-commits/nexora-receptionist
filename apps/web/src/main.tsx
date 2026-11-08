@@ -6,6 +6,7 @@ import './index.css';
 import { restore, session } from './lib/api';
 import { CreateClinicPage, RegisterPage } from './pages/Forms';
 import { LoginPage } from './pages/Login';
+import { PipelinePage } from './pages/crm/Pipeline';
 import { CalendarPage } from './pages/schedule/Calendar';
 import { PatientPage, PatientsPage } from './pages/schedule/Patients';
 import { SettingsPage, SetupPage } from './pages/Setup';
@@ -41,6 +42,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="calendar" element={<CalendarPage />} />
             <Route path="patients" element={<PatientsPage />} />
             <Route path="patients/:id" element={<PatientPage />} />
+            <Route path="pipeline" element={<PipelinePage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

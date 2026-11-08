@@ -9,6 +9,7 @@ export type { AppointmentView, SlotView };
 export interface PatientView {
   id: string; mrn: string; fullName: string; phone: string; dateOfBirth: string | null; sex: string | null;
   preferredLanguage: string; homeBranchId: string | null; city: string | null; nextAppointmentAt: string | null;
+  phoneMasked?: boolean; source?: string | null; lastVisitAt?: string | null;
 }
 export interface PatientDetail extends PatientView { appointments: AppointmentView[] }
 export interface DaySlotsView { date: string; slots: SlotView[] }

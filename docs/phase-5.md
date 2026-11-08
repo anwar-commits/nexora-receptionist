@@ -1,5 +1,7 @@
 # Phase 5 — Patients, calendar and appointments
 
+> This release covered most of the plan's Phase 6 (scheduling engine) and the patient directory from Phase 5. The rest of both is in [phase-6.md](phase-6.md).
+
 **Done when:** staff can register a patient, see free times that respect hours, leave, holidays and existing bookings, book without double-booking, and run the visit from booking to completion. ✅ Met (8 Nov 2026).
 
 ## Delivered

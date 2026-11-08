@@ -28,7 +28,7 @@ export function makeApp(): TestApp {
   });
   const db = createDb(config.DATABASE_URL, { poolMax: 4 });
   const sms = new MemorySms();
-  const app = createApp({ config, db, sms, log: pino({ level: 'silent' }) });
+  const app = createApp({ config, db, sms, log: pino({ level: process.env.TEST_LOG ?? 'silent' }) });
   return { http: request(app), db, sms, close: () => db.close() };
 }
 
@@ -65,6 +65,7 @@ export const ROLE = {
   branchManager: '00000000-0000-4000-8000-000000000002',
   doctor: '00000000-0000-4000-8000-000000000003',
   receptionist: '00000000-0000-4000-8000-000000000004',
+  counsellor: '00000000-0000-4000-8000-000000000005',
 };
 
 export type Owner = Awaited<ReturnType<typeof ownerWithClinic>>;

@@ -6,6 +6,7 @@ import { errorText, useClinic, useClinicData } from '../../lib/clinic';
 import { DAYS, MODE_LABEL } from '../../lib/format';
 import { LIVE, fmtDay, fmtDayLong, fmtTime, minuteOfDay, todayIn, useAppointments, useAttention, useZone, type AppointmentView } from '../../lib/schedule';
 import { AppointmentDrawer, BookingDrawer } from './Booking';
+import { WaitingRoom } from './WaitingRoom';
 
 const PX_PER_MIN = 1.4;
 const BLOCK: Record<string, string> = {
@@ -92,6 +93,7 @@ export function CalendarPage() {
       </div>
 
       {appts.error ? <Notice>{errorText(appts.error)}</Notice> : null}
+      {date === todayIn(zone) && can('appointment:read') ? <WaitingRoom branchId={branchFilter || undefined} /> : null}
       {columns.length === 0 ? <Empty>No doctors work {branchFilter ? 'at this branch ' : ''}on {DAYS[weekday]!.long}s.</Empty> : (
         <Card className="overflow-x-auto">
           <div className="flex min-w-full">

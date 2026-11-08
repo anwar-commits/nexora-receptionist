@@ -299,8 +299,103 @@ export interface AppointmentView {
   doctorId: string; doctorName: string; serviceId: string; serviceName: string; feePaise: number | null;
   patient: { profileId: string; mrn: string; fullName: string };
   reasonText: string | null; bookedByKind: string; cancelledReason: string | null; rescheduledFrom: string | null; createdAt: string;
+  queueToken: string | null;
 }
 export interface SlotView { start: string; end: string; branchId: string | null; mode: ConsultMode }
+
+// ---------- CRM (Phase 6) ----------
+export const LEAD_STAGES = ['enquiry', 'qualified', 'booked', 'consulted', 'treatment_plan', 'follow_up', 'retained', 'lost'] as const;
+export type LeadStage = (typeof LEAD_STAGES)[number];
+export const LEAD_SOURCES = ['phone_call', 'walk_in', 'website', 'google_ads', 'instagram', 'facebook', 'whatsapp', 'referral_partner', 'doctor_referral', 'returning', 'other'] as const;
+
+export const leadBody = z
+  .object({
+    displayName: z.string().trim().min(2).max(120).nullable().optional(),
+    phone: phoneE164.nullable().optional(),
+    interest: z.string().trim().max(200).nullable().optional(),
+    source: z.enum(LEAD_SOURCES),
+    sourceDetail: z.record(z.string().max(60), z.string().max(200)).default({}),
+    branchId: uuid.nullable().optional(),
+    ownerKind: z.enum(['ai', 'user', 'unassigned']).default('unassigned'),
+    ownerUserId: uuid.nullable().optional(),
+    nextActionAt: z.string().datetime({ offset: true }).nullable().optional(),
+    wantsVisitBy: isoDate.nullable().optional(),
+    patientProfileId: uuid.nullable().optional(),
+    note: z.string().trim().max(2000).optional(),
+  })
+  .refine((v) => !!v.displayName || !!v.phone, { message: 'Give a name or a mobile number', path: ['displayName'] })
+  .refine((v) => (v.ownerKind === 'user') === !!v.ownerUserId, { message: 'Choose who owns this lead', path: ['ownerUserId'] });
+
+export const updateLeadBody = z.object({
+  displayName: z.string().trim().min(2).max(120).nullable(),
+  phone: phoneE164.nullable(),
+  interest: z.string().trim().max(200).nullable(),
+  source: z.enum(LEAD_SOURCES),
+  branchId: uuid.nullable(),
+  ownerKind: z.enum(['ai', 'user', 'unassigned']),
+  ownerUserId: uuid.nullable(),
+  nextActionAt: z.string().datetime({ offset: true }).nullable(),
+  wantsVisitBy: isoDate.nullable(),
+  patientProfileId: uuid.nullable(),
+}).partial();
+
+export const leadStageBody = z
+  .object({ stage: z.enum(LEAD_STAGES), lostReason: z.string().trim().min(3).max(300).optional() })
+  .refine((v) => v.stage !== 'lost' || !!v.lostReason, { message: 'Say why the lead was lost', path: ['lostReason'] });
+export const noteBody = z.object({ text: z.string().trim().min(1).max(2000) });
+
+/** Declarative scoring conditions, evaluated in code. */
+export const scoringCondition = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('named_service') }),
+  z.object({ type: z.literal('source_in'), values: z.array(z.enum(LEAD_SOURCES)).min(1) }),
+  z.object({ type: z.literal('wants_visit_within_days'), days: z.number().int().min(1).max(90) }),
+  z.object({ type: z.literal('has_upcoming_appointment') }),
+  z.object({ type: z.literal('returning_patient') }),
+  z.object({ type: z.literal('no_activity_days'), days: z.number().int().min(1).max(90) }),
+]);
+export type ScoringCondition = z.infer<typeof scoringCondition>;
+export const scoringRuleBody = z.object({
+  key: z.string().trim().regex(/^[a-z0-9_]{2,40}$/),
+  label: z.string().trim().min(3).max(80),
+  points: z.number().int().min(-50).max(50),
+  condition: scoringCondition,
+  isActive: z.boolean().default(true),
+});
+export const updateScoringRuleBody = z.object({ label: z.string().trim().min(3).max(80), points: z.number().int().min(-50).max(50), isActive: z.boolean() }).partial();
+
+export const TASK_KINDS = ['callback', 'follow_up', 'safety_check_in', 'reschedule', 'other'] as const;
+export const taskBody = z
+  .object({
+    kind: z.enum(TASK_KINDS).default('follow_up'),
+    title: z.string().trim().min(3).max(200),
+    priority: z.enum(['low', 'normal', 'high', 'urgent']).default('normal'),
+    dueAt: z.string().datetime({ offset: true }).nullable().optional(),
+    assigneeUserId: uuid.optional(),
+    assigneeRole: z.string().regex(/^[a-z_]{2,40}$/).optional(),
+    relatedType: z.enum(['lead', 'patient', 'appointment']).optional(),
+    relatedId: uuid.optional(),
+    notes: z.string().trim().max(1000).optional(),
+  })
+  .refine((v) => !!v.assigneeUserId !== !!v.assigneeRole, { message: 'Assign to one person or one role', path: ['assigneeUserId'] })
+  .refine((v) => !!v.relatedType === !!v.relatedId, { message: 'Related item is incomplete', path: ['relatedId'] });
+export const updateTaskBody = z.object({
+  status: z.enum(['open', 'in_progress', 'done', 'cancelled']),
+  title: z.string().trim().min(3).max(200),
+  priority: z.enum(['low', 'normal', 'high', 'urgent']),
+  dueAt: z.string().datetime({ offset: true }).nullable(),
+  notes: z.string().trim().max(1000).nullable(),
+}).partial();
+
+/** Purposes clinic staff can record. Call-recording notices and data shares are recorded by calls and referrals. */
+export const STAFF_CONSENT_PURPOSES = ['care_data_processing', 'whatsapp_updates', 'ai_followup_calls', 'marketing'] as const;
+export const consentBody = z.object({
+  purpose: z.enum(STAFF_CONSENT_PURPOSES),
+  state: z.enum(['given', 'withdrawn']),
+  capturedVia: z.enum(['in_clinic', 'web']).default('in_clinic'),
+  evidenceRef: z.string().trim().max(200).optional(),
+});
+
+export const queueReorderBody = z.object({ doctorId: uuid, tokenIds: z.array(uuid).min(1).max(200) });
 
 // ---------- errors ----------
 export type ErrorCode =

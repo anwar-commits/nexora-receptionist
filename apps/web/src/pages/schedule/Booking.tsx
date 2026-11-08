@@ -203,7 +203,7 @@ export function BookingDrawer({ date, doctorId: initialDoctor, patient: initialP
   const book = useSave(() => api<AppointmentView>('/appointments', {
     method: 'POST',
     body: { patientProfileId: patient!.id, doctorId, serviceId, mode, branchId: mode === 'clinic' ? slot!.branchId : null, start: slot!.start, reasonText: reason || null, idempotencyKey },
-  }), ['appointments', 'availability', 'patients', 'patient']);
+  }), ['appointments', 'availability', 'patients', 'patient', 'timeline', 'leads', 'lead', 'queue']);
 
   return (
     <Drawer title="Book an appointment" onClose={onClose} width={600}>
@@ -274,7 +274,7 @@ export function AppointmentDrawer({ appointment, onClose }: { appointment: Appoi
   const [panel, setPanel] = useState<'none' | 'cancel' | 'move'>('none');
   const [reason, setReason] = useState('');
   const [slot, setSlot] = useState<SlotView | null>(null);
-  const invalidate = ['appointments', 'availability', 'patient', 'patients'];
+  const invalidate = ['appointments', 'availability', 'patient', 'patients', 'timeline', 'leads', 'lead', 'queue'];
   const status = useSave((s: string) => api<AppointmentView>(`/appointments/${a.id}/status`, { method: 'POST', body: { status: s } }), invalidate);
   const cancel = useSave(() => api<AppointmentView>(`/appointments/${a.id}/cancel`, { method: 'POST', body: { reason } }), invalidate);
   const move = useSave(() => api<AppointmentView>(`/appointments/${a.id}/reschedule`, { method: 'POST', body: { start: slot!.start, branchId: slot!.branchId } }), invalidate);
@@ -288,7 +288,7 @@ export function AppointmentDrawer({ appointment, onClose }: { appointment: Appoi
     <Drawer title={a.patient.fullName} onClose={onClose}>
       {err ? <Notice>{errorText(err)}</Notice> : null}
       <dl className="grid grid-cols-[130px_1fr] gap-x-4 gap-y-2.5 text-sm">
-        <dt className="text-ink-2">Status</dt><dd><StatusPill status={a.status} /></dd>
+        <dt className="text-ink-2">Status</dt><dd className="flex items-center gap-2"><StatusPill status={a.status} />{a.queueToken ? <span className="rounded-md bg-navy px-2 py-0.5 font-mono text-xs font-bold text-white">Token {a.queueToken}</span> : null}</dd>
         <dt className="text-ink-2">When</dt><dd><b>{fmtDay(a.start, zone)}, {fmtTime(a.start, zone)}–{fmtTime(a.end, zone)}</b></dd>
         <dt className="text-ink-2">Doctor</dt><dd>{a.doctorName}</dd>
         <dt className="text-ink-2">Service</dt><dd>{a.serviceName} · {rupees(a.feePaise)}</dd>

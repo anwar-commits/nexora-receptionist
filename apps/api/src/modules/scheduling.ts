@@ -1,9 +1,9 @@
 import {
-  appointmentListQuery, availabilityQuery, bookBody, cancelBody, holdBody, patientBody, phoneE164, rescheduleBody, statusBody, updatePatientBody,
+  appointmentListQuery, availabilityQuery, bookBody, queueReorderBody, cancelBody, holdBody, patientBody, phoneE164, rescheduleBody, statusBody, updatePatientBody,
   type AppointmentStatus, type AppointmentView,
 } from '@dr/contracts';
 import {
-  Appointment, Doctor, DoctorService, Organization, OrganizationSettings, Patient, PatientProfile, QueryTypes, Service, SlotHold, UniqueConstraintError,
+  Appointment, Doctor, DoctorService, Organization, Patient, PatientProfile, QueryTypes, Service, SlotHold, UniqueConstraintError,
 } from '@dr/db';
 import { Router, type Request } from 'express';
 import { DateTime } from 'luxon';
@@ -11,8 +11,11 @@ import type { Deps } from '../context.js';
 import { HttpError, conflict, forbidden, notFound } from '../errors.js';
 import { auditFromReq } from '../lib/audit.js';
 import { computeAvailability, type Busy, type Mode, type WeeklyRule } from '../lib/availability.js';
-import { decrypt, encrypt, hmac } from '../lib/crypto.js';
+import { decrypt, encrypt } from '../lib/crypto.js';
 import { grant, parse, requireOrg, requirePermission, requireUser } from '../middleware.js';
+import { createPatient, patientPhoneHash } from '../lib/patients.js';
+import { advanceLeadsForPatient } from './crm.js';
+import { apptScope, patientScope } from '../lib/scopes.js';
 
 /**
  * Phase 5: patients, free slots, holds, booking and the appointment lifecycle.
@@ -35,7 +38,6 @@ const NEXT: Record<string, AppointmentStatus[]> = {
 };
 
 type Repl = Record<string, unknown>;
-interface Scope { sql: string; repl: Repl }
 
 export function schedulingRouter(deps: Deps): Router {
   const { db, config } = deps;
@@ -45,46 +47,7 @@ export function schedulingRouter(deps: Deps): Router {
   const inOrg = <T>(req: Request, fn: () => Promise<T>) => db.withContext({ orgId: req.ctx!.org!.id, userId: req.ctx!.userId }, fn);
   const orgId = (req: Request) => req.ctx!.org!.id;
   const q = <T extends object>(sql: string, replacements: Repl = {}) => db.sequelize.query<T>(sql, { replacements, type: QueryTypes.SELECT });
-  const phoneHash = (phone: string) => hmac(config.pepper, 'patient-phone', phone);
-
-  // ---------- who sees what inside a clinic ----------
-  /** SQL condition on appointments `a` (joined with doctors `d`) for a permission's scope. */
-  function apptScope(req: Request, perm: string): Scope {
-    const g = grant(req, perm);
-    const mine = req.ctx!.org!.branchIds;
-    if (g.scope === 'org' || (g.scope === 'branch' && mine.length === 0)) return { sql: 'TRUE', repl: {} };
-    if (g.scope === 'branch') {
-      return {
-        sql: `(a.branch_id IN (:mine) OR (a.branch_id IS NULL AND EXISTS (
-                SELECT 1 FROM app.schedule_rules sr WHERE sr.doctor_id = a.doctor_id AND sr.branch_id IN (:mine))))`,
-        repl: { mine },
-      };
-    }
-    if (g.scope === 'own') return { sql: 'd.user_id = :me', repl: { me: req.ctx!.userId } };
-    return { sql: 'FALSE', repl: {} }; // 'assigned' arrives with the CRM
-  }
-
-  /** SQL condition on patient_profiles `pp` for a permission's scope. */
-  function patientScope(req: Request, perm: string): Scope {
-    const g = grant(req, perm);
-    const mine = req.ctx!.org!.branchIds;
-    if (g.scope === 'org' || (g.scope === 'branch' && mine.length === 0)) return { sql: 'TRUE', repl: {} };
-    if (g.scope === 'branch') {
-      return {
-        sql: `(pp.home_branch_id IS NULL OR pp.home_branch_id IN (:mine) OR EXISTS (
-                SELECT 1 FROM app.appointments a2 WHERE a2.patient_profile_id = pp.id AND a2.branch_id IN (:mine)))`,
-        repl: { mine },
-      };
-    }
-    if (g.scope === 'own') {
-      return {
-        sql: `EXISTS (SELECT 1 FROM app.appointments a2 JOIN app.doctors d2 ON d2.id = a2.doctor_id
-                       WHERE a2.patient_profile_id = pp.id AND d2.user_id = :me)`,
-        repl: { me: req.ctx!.userId },
-      };
-    }
-    return { sql: 'FALSE', repl: {} };
-  }
+  const phoneHash = (phone: string) => patientPhoneHash(deps, phone);
 
   /** May this member book or move an appointment to this doctor / mode / branch? */
   async function assertCanBook(req: Request, doctor: Doctor, mode: Mode, branchId: string | null) {
@@ -183,7 +146,8 @@ export function schedulingRouter(deps: Deps): Router {
     const rows = await q<Record<string, unknown>>(
       `SELECT a.id, lower(a.slot) AS start, upper(a.slot) AS "end", a.status, a.mode, a.branch_id, a.doctor_id, d.display_name AS doctor_name,
               a.service_id, s.name AS service_name, a.fee_paise, a.patient_profile_id, pp.mrn, p.full_name, a.reason_text, a.booked_by_kind,
-              a.cancelled_reason, a.rescheduled_from, a.created_at
+              a.cancelled_reason, a.rescheduled_from, a.created_at,
+              (SELECT qt.token FROM app.queue_tokens qt WHERE qt.appointment_id = a.id) AS queue_token
          FROM app.appointments a
          JOIN app.doctors d ON d.id = a.doctor_id
          JOIN app.services s ON s.id = a.service_id
@@ -199,6 +163,7 @@ export function schedulingRouter(deps: Deps): Router {
       patient: { profileId: x.patient_profile_id as string, mrn: x.mrn as string, fullName: x.full_name as string },
       reasonText: x.reason_text as string | null, bookedByKind: x.booked_by_kind as string, cancelledReason: x.cancelled_reason as string | null,
       rescheduledFrom: x.rescheduled_from as string | null, createdAt: new Date(x.created_at as string).toISOString(),
+      queueToken: (x.queue_token as string | null) ?? null,
     }));
   }
 
@@ -214,13 +179,24 @@ export function schedulingRouter(deps: Deps): Router {
   // =====================================================================
   // Patients
   // =====================================================================
-  const patientJson = (x: { id: string; mrn: string; home_branch_id: string | null; city?: string | null; full_name: string; phone_e164_enc: Buffer; date_of_birth: string | null; sex: string | null; preferred_language: string; next_appointment?: Date | null }) => ({
-    id: x.id, mrn: x.mrn, fullName: x.full_name, phone: decrypt(config.dataKey, x.phone_e164_enc), dateOfBirth: x.date_of_birth,
-    sex: x.sex, preferredLanguage: x.preferred_language, homeBranchId: x.home_branch_id, city: x.city ?? null,
-    nextAppointmentAt: x.next_appointment ? new Date(x.next_appointment).toISOString() : null,
-  });
-  const PATIENT_SELECT = `SELECT pp.id, pp.mrn, pp.home_branch_id, pp.city, p.full_name, p.phone_e164_enc, p.date_of_birth::text, p.sex, p.preferred_language,
-      (SELECT min(lower(a.slot)) FROM app.appointments a WHERE a.patient_profile_id = pp.id AND lower(a.slot) > now() AND a.status IN ${LIVE_SQL}) AS next_appointment
+  type PatientRow = { id: string; mrn: string; home_branch_id: string | null; city?: string | null; full_name: string; phone_e164_enc: Buffer; date_of_birth: string | null; sex: string | null; preferred_language: string; acquisition_source?: string | null; next_appointment?: Date | null; last_visit?: Date | null };
+  /** Lists show a masked number (98•• ••• 451); the full number is shown when a record is opened. */
+  const maskPhone = (e164: string) => {
+    const d = e164.replace(/^\+91/, '');
+    return d.length === 10 ? `${d.slice(0, 2)}•• ••• ${d.slice(7)}` : `${e164.slice(0, 4)}•••${e164.slice(-3)}`;
+  };
+  const patientJson = (x: PatientRow, opts: { mask?: boolean } = {}) => {
+    const phone = decrypt(config.dataKey, x.phone_e164_enc);
+    return {
+      id: x.id, mrn: x.mrn, fullName: x.full_name, phone: opts.mask ? maskPhone(phone) : phone, phoneMasked: !!opts.mask, dateOfBirth: x.date_of_birth,
+      sex: x.sex, preferredLanguage: x.preferred_language, homeBranchId: x.home_branch_id, city: x.city ?? null, source: x.acquisition_source ?? null,
+      nextAppointmentAt: x.next_appointment ? new Date(x.next_appointment).toISOString() : null,
+      lastVisitAt: x.last_visit ? new Date(x.last_visit).toISOString() : null,
+    };
+  };
+  const PATIENT_SELECT = `SELECT pp.id, pp.mrn, pp.home_branch_id, pp.city, pp.acquisition_source, p.full_name, p.phone_e164_enc, p.date_of_birth::text, p.sex, p.preferred_language,
+      (SELECT min(lower(a.slot)) FROM app.appointments a WHERE a.patient_profile_id = pp.id AND lower(a.slot) > now() AND a.status IN ${LIVE_SQL}) AS next_appointment,
+      (SELECT max(lower(a.slot)) FROM app.appointments a WHERE a.patient_profile_id = pp.id AND a.status = 'completed') AS last_visit
     FROM app.patient_profiles pp JOIN app.patients p ON p.id = pp.patient_id`;
 
   /** Search by full mobile number, clinic patient ID or part of the name. */
@@ -230,9 +206,11 @@ export function schedulingRouter(deps: Deps): Router {
       const s = patientScope(req, 'patient:read');
       const repl: Repl = { ...s.repl };
       let cond = 'TRUE';
+      let searchedByPhone = false;
       if (term) {
         const phone = phoneE164.safeParse(term);
         if (phone.success && /\d{10}/.test(term.replace(/\D/g, ''))) {
+          searchedByPhone = true;
           cond = 'p.phone_hash = :hash';
           repl.hash = phoneHash(phone.data);
         } else if (/^[A-Za-z0-9]{1,6}-\d+$/.test(term)) {
@@ -243,8 +221,12 @@ export function schedulingRouter(deps: Deps): Router {
           repl.name = `%${term.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
         }
       }
-      const rows = await q<Parameters<typeof patientJson>[0]>(`${PATIENT_SELECT} WHERE pp.deleted_at IS NULL AND ${s.sql} AND ${cond} ORDER BY pp.created_at DESC LIMIT 50`, repl);
-      return rows.map(patientJson);
+      const extra: string[] = [];
+      if (req.query.upcoming === '1') extra.push(`EXISTS (SELECT 1 FROM app.appointments a WHERE a.patient_profile_id = pp.id AND lower(a.slot) > now() AND a.status IN ${LIVE_SQL})`);
+      if (req.query.source) { extra.push('pp.acquisition_source = :src'); repl.src = String(req.query.source); }
+      const rows = await q<PatientRow>(`${PATIENT_SELECT} WHERE pp.deleted_at IS NULL AND ${s.sql} AND ${cond}${extra.map((x) => ` AND ${x}`).join('')} ORDER BY pp.created_at DESC LIMIT 50`, repl);
+      // The caller already knows the number they searched for; otherwise numbers stay masked in lists.
+      return rows.map((x) => patientJson(x, { mask: !searchedByPhone }));
     });
     res.json({ items });
   });
@@ -259,32 +241,8 @@ export function schedulingRouter(deps: Deps): Router {
       if (!mine.includes(homeBranchId)) throw forbidden('You can only register patients at your branches');
     }
     const out = await inOrg(req, async () => {
-      const hash = phoneHash(body.phone);
-      // Families often share one mobile number, so the same number is fine; the same number AND name is a duplicate.
-      const [dup] = await q<{ id: string; mrn: string }>(
-        `SELECT pp.id, pp.mrn FROM app.patient_profiles pp JOIN app.patients p ON p.id = pp.patient_id
-          WHERE pp.deleted_at IS NULL AND p.phone_hash = :hash AND lower(p.full_name) = lower(:name)`, { hash, name: body.fullName });
-      if (dup) throw new HttpError(409, 'conflict', `${body.fullName} is already registered (${dup.mrn})`, { patientProfileId: dup.id });
-
-      const [counter] = await q<{ n: number; prefix: string | null; name: string }>(
-        `UPDATE app.organization_settings s SET next_mrn = next_mrn + 1 FROM app.organizations o
-          WHERE s.organization_id = :org AND o.id = s.organization_id RETURNING s.next_mrn - 1 AS n, s.mrn_prefix AS prefix, o.name`, { org: orgId(req) });
-      if (!counter) throw notFound();
-      let prefix = counter.prefix;
-      if (!prefix) {
-        prefix = counter.name.replace(/[^A-Za-z0-9 ]/g, '').split(/\s+/).filter(Boolean).map((w) => w[0]!.toUpperCase()).join('').slice(0, 3) || 'PT';
-        await OrganizationSettings.update({ mrnPrefix: prefix }, { where: { organizationId: orgId(req) } });
-      }
-      const person = await Patient.create({
-        phoneE164Enc: encrypt(config.dataKey, body.phone), phoneHash: hash, fullName: body.fullName,
-        dateOfBirth: body.dateOfBirth ?? null, sex: body.sex ?? null, preferredLanguage: body.preferredLanguage, createdByOrg: orgId(req),
-      });
-      const profile = await PatientProfile.create({
-        organizationId: orgId(req), patientId: person.id, mrn: `${prefix}-${counter.n}`, homeBranchId,
-        city: body.city ?? null, acquisitionSource: body.acquisitionSource ?? null,
-      });
-      await auditFromReq(req, { action: 'patient.create', targetType: 'patient_profile', targetId: profile.id, details: { mrn: profile.mrn } });
-      const [row] = await q<Parameters<typeof patientJson>[0]>(`${PATIENT_SELECT} WHERE pp.id = :id`, { id: profile.id });
+      const id = await createPatient(deps, req, body, homeBranchId);
+      const [row] = await q<PatientRow>(`${PATIENT_SELECT} WHERE pp.id = :id`, { id });
       return patientJson(row!);
     });
     res.status(201).json(out);
@@ -294,7 +252,7 @@ export function schedulingRouter(deps: Deps): Router {
     const out = await inOrg(req, async () => {
       const id = String(req.params.id);
       await assertPatientVisible(req, id, 'patient:read');
-      const [row] = await q<Parameters<typeof patientJson>[0] & { patient_id: string }>(`${PATIENT_SELECT.replace('SELECT pp.id,', 'SELECT pp.id, pp.patient_id,')} WHERE pp.id = :id`, { id });
+      const [row] = await q<PatientRow & { patient_id: string }>(`${PATIENT_SELECT.replace('SELECT pp.id,', 'SELECT pp.id, pp.patient_id,')} WHERE pp.id = :id`, { id });
       let appointments: AppointmentView[] = [];
       if (req.ctx!.org!.grants.has('appointment:read')) {
         const a = apptScope(req, 'appointment:read');
@@ -336,7 +294,7 @@ export function schedulingRouter(deps: Deps): Router {
         ...(body.acquisitionSource !== undefined ? { acquisitionSource: body.acquisitionSource } : {}),
       });
       await auditFromReq(req, { action: 'patient.update', targetType: 'patient_profile', targetId: id, details: { fields: Object.keys(body) } });
-      const [row] = await q<Parameters<typeof patientJson>[0]>(`${PATIENT_SELECT} WHERE pp.id = :id`, { id });
+      const [row] = await q<PatientRow>(`${PATIENT_SELECT} WHERE pp.id = :id`, { id });
       return patientJson(row!);
     });
     res.json(out);
@@ -434,6 +392,8 @@ export function schedulingRouter(deps: Deps): Router {
         });
         if (body.holdId) await SlotHold.destroy({ where: { id: body.holdId } });
         await auditFromReq(req, { action: 'appointment.book', targetType: 'appointment', targetId: a.id, details: { doctorId: doctor.id, start: slot.start, mode: body.mode } });
+        // The patient's open enquiry moves to "booked" on the pipeline.
+        await advanceLeadsForPatient(deps, req, body.patientProfileId, ['enquiry', 'qualified'], 'booked', a.id);
         return { created: true, view: (await loadVisibleAppointment(req, a.id, 'appointment:read')).view };
       } catch (e) {
         if (isExclusionViolation(e)) throw conflict('That time was just taken. Pick another slot.');
@@ -460,6 +420,13 @@ export function schedulingRouter(deps: Deps): Router {
       if (body.status === 'no_show' && start > new Date()) throw conflict('An appointment can only be marked no-show after it starts');
       if (body.status === 'in_consultation' && start.getTime() - Date.now() > 60 * 60_000) throw conflict('This consultation is more than an hour away');
       await a.update({ status: body.status, statusChangedAt: new Date(), statusChangedBy: req.ctx!.userId });
+      // Waiting room: check-in issues a token; the token follows the visit.
+      if (body.status === 'checked_in') await issueToken(req, a, tz);
+      if (body.status === 'in_consultation') await setTokenStatus(a.id, 'in_room');
+      if (body.status === 'completed') {
+        await setTokenStatus(a.id, 'done');
+        await advanceLeadsForPatient(deps, req, a.patientProfileId, ['booked'], 'consulted', a.id);
+      }
       await auditFromReq(req, { action: 'appointment.status', targetType: 'appointment', targetId: a.id, details: { from: view.status, to: body.status } });
       return (await loadVisibleAppointment(req, a.id, 'appointment:read')).view;
     });
@@ -507,6 +474,119 @@ export function schedulingRouter(deps: Deps): Router {
       }
     });
     res.json(out);
+  });
+
+  // =====================================================================
+  // Waiting room (queue tokens)
+  // =====================================================================
+  /** Token like "M-03": the doctor's surname initial and a number per branch, day and letter. */
+  async function issueToken(req: Request, a: Appointment, tz: string) {
+    if (!a.branchId) return;
+    const [doc] = await q<{ display_name: string }>(`SELECT display_name FROM app.doctors WHERE id = :id`, { id: a.doctorId });
+    const letter = (doc?.display_name.replace(/^dr\.?\s*/i, '').trim().split(/\s+/).pop()?.[0] ?? 'T').toUpperCase().replace(/[^A-Z]/, 'T');
+    const date = DateTime.now().setZone(tz).toISODate()!;
+    await db.sequelize.query('SELECT pg_advisory_xact_lock(hashtext(:k))', { replacements: { k: `${a.branchId}:${date}` } });
+    const [n] = await q<{ n: string; pos: string }>(
+      `SELECT (SELECT count(*) FROM app.queue_tokens WHERE branch_id = :b AND service_date = :d AND token LIKE :prefix) AS n,
+              (SELECT COALESCE(max(position), 0) FROM app.queue_tokens WHERE branch_id = :b AND service_date = :d AND doctor_id = :doc) AS pos`,
+      { b: a.branchId, d: date, prefix: `${letter}-%`, doc: a.doctorId });
+    const token = `${letter}-${String(Number(n!.n) + 1).padStart(2, '0')}`;
+    await db.sequelize.query(
+      `INSERT INTO app.queue_tokens (organization_id, branch_id, appointment_id, patient_profile_id, doctor_id, token, service_date, is_walk_in, status, position)
+       VALUES (:org, :b, :appt, :pp, :doc, :token, :d, false, 'waiting', :pos)
+       ON CONFLICT (appointment_id) WHERE appointment_id IS NOT NULL DO NOTHING`,
+      { replacements: { org: orgId(req), b: a.branchId, appt: a.id, pp: a.patientProfileId, doc: a.doctorId, token, d: date, pos: Number(n!.pos) + 1 } });
+  }
+  const setTokenStatus = (appointmentId: string, status: 'in_room' | 'done') =>
+    db.sequelize.query(`UPDATE app.queue_tokens SET status = :status, status_changed_at = now() WHERE appointment_id = :id AND status NOT IN ('done','left')`, { replacements: { id: appointmentId, status } });
+
+  async function queueBranch(req: Request, branchId: string | undefined) {
+    const mine = req.ctx!.org!.branchIds;
+    const g = grant(req, 'appointment:read');
+    if (branchId) {
+      if (g.scope !== 'org' && mine.length && !mine.includes(branchId)) throw forbidden('This is not one of your branches');
+      return branchId;
+    }
+    if (mine.length) return mine[0]!;
+    const [b] = await q<{ id: string }>(`SELECT id FROM app.branches WHERE deleted_at IS NULL AND is_active ORDER BY created_at LIMIT 1`);
+    if (!b) throw notFound('No open branch');
+    return b.id;
+  }
+
+  r.get('/queue', user, org, requirePermission('appointment:read'), async (req, res) => {
+    const out = await inOrg(req, async () => {
+      const tz = await timeZone(req);
+      const branchId = await queueBranch(req, req.query.branchId ? String(req.query.branchId) : undefined);
+      const date = req.query.date ? String(req.query.date) : DateTime.now().setZone(tz).toISODate()!;
+      const own = grant(req, 'appointment:read').scope === 'own';
+      const rows = await q<Record<string, unknown>>(
+        `SELECT t.id, t.token, t.status, t.position, t.doctor_id, d.display_name AS doctor_name, t.appointment_id, lower(a.slot) AS appt_start,
+                t.patient_profile_id, pp.mrn, p.full_name, t.checked_in_at, t.called_at, t.is_walk_in
+           FROM app.queue_tokens t
+           JOIN app.patient_profiles pp ON pp.id = t.patient_profile_id JOIN app.patients p ON p.id = pp.patient_id
+           LEFT JOIN app.doctors d ON d.id = t.doctor_id LEFT JOIN app.appointments a ON a.id = t.appointment_id
+          WHERE t.branch_id = :b AND t.service_date = :date ${own ? 'AND d.user_id = :me' : ''}
+          ORDER BY d.display_name, t.position`, { b: branchId, date, me: req.ctx!.userId });
+      return {
+        branchId, date,
+        items: rows.map((x) => ({
+          id: x.id, token: x.token, status: x.status, position: x.position, doctorId: x.doctor_id, doctorName: x.doctor_name,
+          appointmentId: x.appointment_id, appointmentStart: x.appt_start ? new Date(x.appt_start as string).toISOString() : null,
+          patient: { profileId: x.patient_profile_id, mrn: x.mrn, fullName: x.full_name },
+          checkedInAt: new Date(x.checked_in_at as string).toISOString(), calledAt: x.called_at ? new Date(x.called_at as string).toISOString() : null,
+          waitingMinutes: ['waiting', 'called'].includes(x.status as string) ? Math.floor((Date.now() - new Date(x.checked_in_at as string).getTime()) / 60_000) : null,
+          isWalkIn: x.is_walk_in,
+        })),
+      };
+    });
+    res.json(out);
+  });
+
+  async function loadToken(req: Request, id: string) {
+    const [t] = await q<{ id: string; branch_id: string; status: string; doctor_id: string; appointment_id: string | null }>(
+      `SELECT id, branch_id, status, doctor_id, appointment_id FROM app.queue_tokens WHERE id = :id`, { id });
+    if (!t) throw notFound('Token not found');
+    await queueBranch(req, t.branch_id);
+    if (t.appointment_id) {
+      const s = apptScope(req, 'appointment:manage');
+      const [ok] = await q<{ id: string }>(`SELECT a.id FROM app.appointments a JOIN app.doctors d ON d.id = a.doctor_id WHERE a.id = :id AND ${s.sql}`, { id: t.appointment_id, ...s.repl });
+      if (!ok) throw notFound('Token not found');
+    }
+    return t;
+  }
+
+  r.post('/queue/:id/call', user, org, requirePermission('appointment:manage'), async (req, res) => {
+    await inOrg(req, async () => {
+      const t = await loadToken(req, String(req.params.id));
+      if (t.status !== 'waiting') throw conflict('Only waiting patients can be called');
+      await db.sequelize.query(`UPDATE app.queue_tokens SET status = 'called', called_at = now(), status_changed_at = now() WHERE id = :id`, { replacements: { id: t.id } });
+      await auditFromReq(req, { action: 'queue.call', targetType: 'queue_token', targetId: t.id });
+    });
+    res.json({ ok: true });
+  });
+
+  r.post('/queue/:id/left', user, org, requirePermission('appointment:manage'), async (req, res) => {
+    await inOrg(req, async () => {
+      const t = await loadToken(req, String(req.params.id));
+      if (!['waiting', 'called'].includes(t.status)) throw conflict('Only waiting patients can be marked as left');
+      await db.sequelize.query(`UPDATE app.queue_tokens SET status = 'left', status_changed_at = now() WHERE id = :id`, { replacements: { id: t.id } });
+      await auditFromReq(req, { action: 'queue.left', targetType: 'queue_token', targetId: t.id });
+    });
+    res.json({ ok: true });
+  });
+
+  r.post('/queue/reorder', user, org, requirePermission('appointment:manage'), async (req, res) => {
+    const body = parse(queueReorderBody, req.body);
+    await inOrg(req, async () => {
+      const tokens = await Promise.all(body.tokenIds.map((id) => loadToken(req, id)));
+      if (tokens.some((t) => t.doctor_id !== body.doctorId)) throw badRequest('All tokens must be for the same doctor');
+      if (new Set(tokens.map((t) => t.branch_id)).size !== 1) throw badRequest('All tokens must be at the same branch');
+      for (const [i, t] of tokens.entries()) {
+        await db.sequelize.query(`UPDATE app.queue_tokens SET position = :p WHERE id = :id`, { replacements: { id: t.id, p: i + 1 } });
+      }
+      await auditFromReq(req, { action: 'queue.reorder', targetType: 'doctor', targetId: body.doctorId, details: { count: tokens.length } });
+    });
+    res.json({ ok: true });
   });
 
   return r;

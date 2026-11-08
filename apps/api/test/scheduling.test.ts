@@ -111,11 +111,11 @@ describe('appointments', () => {
     const procedure = (await o(t.http.post('/v1/services')).send({ name: 'PRP session', durationMinutes: 40, feePaise: 600000 }).expect(201)).body;
     await o(t.http.post('/v1/appointments')).send({ ...body, serviceId: procedure.id, mode: 'video', branchId: null, start: ist(mon, '18:00') }).expect(400);
 
-    // ten people try the same slot at once: exactly one gets it
-    const results = await Promise.all(Array.from({ length: 10 }, () =>
+    // 50 people try the same slot at once: exactly one gets it (the plan's concurrency bar)
+    const results = await Promise.all(Array.from({ length: 50 }, () =>
       o(t.http.post('/v1/appointments')).send({ ...body, start: ist(mon, '11:00') })));
     expect(results.filter((r) => r.status === 201)).toHaveLength(1);
-    expect(results.filter((r) => r.status === 409)).toHaveLength(9);
+    expect(results.filter((r) => r.status === 409)).toHaveLength(49);
 
     const left = (await o(t.http.get(`/v1/availability?doctorId=${doctor.id}&serviceId=${service.id}&mode=clinic&from=${mon}&days=1`))).body.days[0].slots;
     expect(left).toHaveLength(7);

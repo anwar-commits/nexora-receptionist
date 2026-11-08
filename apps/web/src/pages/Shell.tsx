@@ -6,10 +6,11 @@ import { Button, Card, Logo, Notice, Pill } from '../components/ui';
 import { ApiRequestError, api, auth, session } from '../lib/api';
 import { useClinic, useClinicData } from '../lib/clinic';
 import { LIVE, todayIn, useAppointments, useAttention, useZone } from '../lib/schedule';
+import { MyTasks } from './crm/Tasks';
 
 const NAV: { label: string; to?: string }[] = [
   { label: 'Home', to: '/' }, { label: 'Reception' }, { label: 'Inbox' }, { label: 'Calendar', to: '/calendar' }, { label: 'Patients', to: '/patients' },
-  { label: 'CRM pipeline' }, { label: 'AI Receptionist' }, { label: 'Referrals' }, { label: 'Payments' }, { label: 'Analytics' },
+  { label: 'CRM pipeline', to: '/pipeline' }, { label: 'AI Receptionist' }, { label: 'Referrals' }, { label: 'Payments' }, { label: 'Analytics' },
   { label: 'Settings', to: '/settings' },
 ];
 
@@ -36,7 +37,7 @@ export function ShellPage() {
   const switchTo = async (id: string) => { session.setOrg(id); await qc.invalidateQueries(); navigate('/'); };
   const signOut = async () => { try { await auth.logout(); } finally { session.clear(); qc.clear(); navigate('/login', { replace: true }); } };
   const active = memberships.find((m) => m.organizationId === orgId);
-  const PAGES: [string, string][] = [['/settings', 'Settings'], ['/setup', 'Setup'], ['/calendar', 'Calendar'], ['/patients', 'Patients']];
+  const PAGES: [string, string][] = [['/settings', 'Settings'], ['/setup', 'Setup'], ['/calendar', 'Calendar'], ['/patients', 'Patients'], ['/pipeline', 'CRM pipeline']];
   const page = PAGES.find(([p]) => location.pathname.startsWith(p))?.[1] ?? 'Home';
 
   return (
@@ -119,6 +120,8 @@ export function HomePage() {
         </Card>
       ) : null}
 
+      <Card className="p-5"><MyTasks /></Card>
+
       <div className="grid gap-5 md:grid-cols-3">
         <Card className="p-5">
           <h2 className="font-display text-lg font-bold">Doctors</h2>
@@ -139,7 +142,7 @@ export function HomePage() {
           <Link to="/settings/branches" className="mt-3 inline-block text-[13px] font-semibold text-teal">Branches and hours →</Link>
         </Card>
       </div>
-      <Notice kind="ai">Calendar and patients are live. Reception queue, inbox and the AI receptionist arrive in the next releases.</Notice>
+      <Notice kind="ai">Calendar, waiting room, patients and the pipeline are live. The reception console, inbox and the AI receptionist arrive in the next releases.</Notice>
     </>
   );
 }
